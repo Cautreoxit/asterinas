@@ -17,6 +17,7 @@ TEST_APPS := \
 	cpu_affinity \
 	epoll \
 	eventfd2 \
+	evdev \
 	execve \
 	exit \
 	fdatasync \
