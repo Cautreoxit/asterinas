@@ -22,13 +22,14 @@ use ostd::{
     boot::boot_info,
     io::IoMem,
     mm::{VmIo, VmReader},
-    sync::{SpinLock, PreemptDisabled, SpinLockGuard},
+    sync::{PreemptDisabled, SpinLock, SpinLockGuard}, task::scheduler::info,
 };
 
 use spin::Once;
 
 #[init_component]
 fn init() -> Result<(), ComponentInitError> {
+    log::error!("This is init in kernel/comps/framebuffer/src/lib.rs");
     framebuffer_init();
     framebuffer_console_init();
     Ok(())
@@ -62,12 +63,12 @@ pub fn get_framebuffer_info() -> Option<SpinLockGuard<'static, FrameBuffer, Pree
 
 fn framebuffer_init() {
     let Some(framebuffer_arg) = boot_info().framebuffer_arg else {
-        log::warn!("Framebuffer not found");
+        log::error!("Framebuffer not found");
         return;
     };
 
     if framebuffer_arg.address == 0 {
-        log::warn!("Framebuffer address is zero");
+        log::error!("Framebuffer address is zero");
         return;
     }
 
@@ -89,6 +90,8 @@ fn framebuffer_init() {
     framebuffer.clear();
     FRAMEBUFFER.call_once(|| SpinLock::new(framebuffer));
     aster_keyboard::register_callback(&handle_keyboard_input);
+    aster_mouse::register_callback(&handle_mouse_input);
+    log::error!("This is the end of framebuffer_init in kernel/comps/framebuffer/src/lib.rs");
 }
 
 impl FrameBuffer {
@@ -350,4 +353,9 @@ fn handle_keyboard_input(key: InputKey) {
         let reader = VmReader::from(buffer);
         callback(reader);
     }
+}
+
+// TODO: framebuffer using mouse input
+fn handle_mouse_input() {
+    log::error!("This is handle_mouse_input in kernel/comps/framebuffer/src/lib.rs!");
 }

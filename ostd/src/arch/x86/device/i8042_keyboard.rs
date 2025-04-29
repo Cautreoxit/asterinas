@@ -24,11 +24,13 @@ static IRQ_LINE: Once<SpinLock<IrqLine>> = Once::new();
 
 pub(crate) fn init() {
     let irq = if !IO_APIC.is_completed() {
-        pic::allocate_irq(1).unwrap()
+        pic::allocate_irq(1).unwrap();
+        pic::allocate_irq(12).unwrap()
     } else {
         let irq = IrqLine::alloc().unwrap();
         let mut io_apic = IO_APIC.get().unwrap().first().unwrap().lock();
         io_apic.enable(1, irq.clone()).unwrap();
+        io_apic.enable(12, irq.clone()).unwrap();
         irq
     };
 

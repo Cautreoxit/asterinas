@@ -10,6 +10,7 @@ ostd = { path = "../../../ostd" }
 component = { path = "../../libs/comp-sys/component" }
 aster-console = { path = "../console" }
 aster-keyboard ={ path = "../keyboard" }
+aster-mouse ={ path = "../mouse" }
 aster-logger = { path = "../logger" }
 
 log = "0.4"
