@@ -97,7 +97,12 @@ impl FileIo for Fb {
 
         //if let Some(framebuffer) = get_framebuffer_info().as_deref() {
             // Ensure the framebuffer base address is page-aligned
-            let framebuffer_paddr_start = align_down(0x7eab2000 + offset, PAGE_SIZE);
+            let framebuffer_paddr_start = align_down(
+                get_framebuffer_info()
+                    .ok_or(Errno::ENODEV)?
+                    .io_mem_base() + offset,
+                PAGE_SIZE,
+            );
             let framebuffer_paddr_end = align_up(
                 framebuffer_paddr_start + len,
                 PAGE_SIZE,
