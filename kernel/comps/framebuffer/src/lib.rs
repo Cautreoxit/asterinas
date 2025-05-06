@@ -357,5 +357,5 @@ fn handle_keyboard_input(key: InputKey) {
 
 // TODO: framebuffer using mouse input
 fn handle_mouse_input() {
-    log::error!("This is handle_mouse_input in kernel/comps/framebuffer/src/lib.rs!");
+    log::error!("End: This is in kernel/comps/framebuffer/src/lib.rs!");
 }

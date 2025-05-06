@@ -8,15 +8,15 @@ use alloc::sync::Arc;
 use aster_input::{InputDevice, InputDeviceMeta, InputEvent, input_event};
 use aster_time::tsc::read_instant;
 
-use ostd::{arch::x86::device::i8042_keyboard, trap::TrapFrame};
+use ostd::{arch::x86::device::i8042_device, sync::Mutex, trap::TrapFrame};
 use crate::alloc::string::ToString;
 use super::MOUSE_CALLBACKS;
-use crate::event_type_codes::*;
+use aster_input::event_type_codes::{EventType, RelAxis, MouseKeyEvent};
 
 
 pub fn init() {
     log::error!("This is init in kernel/comps/mouse/src/i8042_mouse.rs");
-    i8042_keyboard::register_callback(handle_mouse_input);
+    i8042_device::register_mouse_callback(handle_mouse_input);
 
     aster_input::register_device("i8042_mouse".to_string(), Arc::new(I8042Mouse));
 }
@@ -26,28 +26,43 @@ impl InputDevice for I8042Mouse {
     fn metadata(&self) -> InputDeviceMeta {
         InputDeviceMeta {
             name: "i8042_mouse".to_string(),
-            vendor_id: 0x1234,    // Replace with the actual vendor ID
-            product_id: 0x5678,  // Replace with the actual product ID
-            version: 1,          // Replace with the actual version
+            vendor_id: 0x2345,    // Replace with the actual vendor ID
+            product_id: 0x6789,  // Replace with the actual product ID
+            version: 2,          // Replace with the actual version
         }
     }
 }
 
-fn handle_mouse_input(_trap_frame: &TrapFrame) {
-    log::error!("This is handle_mouse_input in kernel/comps/mouse/src/i8042_mouse.rs");
-    // let key = parse_inputkey();
-    let packet = parse_input_packet();
+pub struct MouseState {
+    buffer: [u8; 3],
+    index: usize,
+}
 
-    // TODO: mouse input events
-    // Dispatch the input event
+static MOUSE_STATE: Mutex<MouseState> = Mutex::new(MouseState { buffer: [0; 3], index: 0 });
+
+fn handle_mouse_input(_trap_frame: &TrapFrame) {
+    let byte = MousePacket::read_one_byte();
+
+    let mut state = MOUSE_STATE.lock();
+
+    if state.index == 0 && (byte & 0x08 == 0) {
+        log::error!("Invalid first byte! Abort.");
+        return;
+    }
+    let index = state.index;
+    state.buffer[index] = byte;
+    state.index += 1;
+
+    if state.index == 3 {
+        let packet = parse_input_packet(state.buffer);
+        state.index = 0;
+        handle_mouse_packet(packet);
+    }
+}
+
+fn handle_mouse_packet(packet: MousePacket) {
     let event = parse_input_event(packet);
-    input_event(event);
-    // input_event(InputEvent {
-    //     time: time_in_microseconds, // Assign the current timestamp
-    //     type_: 1,                   // EV_KEY (example type for key events)
-    //     code: 0 as u16,           // Convert InputKey to a u16 representation
-    //     value: 1,                   // Example value (1 for key press, 0 for release)
-    // });
+    input_event(event, "i8042_mouse");
 
     // Fixme: the callbacks are going to be replaced.
     for callback in MOUSE_CALLBACKS.lock().iter() {
@@ -68,7 +83,7 @@ pub struct MousePacket {
 
 impl MousePacket {
     fn read_one_byte() -> u8 {
-        i8042_keyboard::DATA_PORT.read()
+        i8042_device::DATA_PORT.read()
     }
 }
 
@@ -76,10 +91,10 @@ impl MousePacket {
 struct Status(u8);
 
 impl Status {
-    const STAT_OUTPUT_BUFFER_FULL: u8 = 0x01; /* Keyboard output buffer full */
+    const STAT_OUTPUT_BUFFER_FULL: u8 = 0x01; 
 
     fn read() -> Self {
-        Self(i8042_keyboard::STATUS_PORT.read())
+        Self(i8042_device::STATUS_PORT.read())
     }
 
     fn is_valid(&self) -> bool {
@@ -91,18 +106,23 @@ impl Status {
     }
 }
 
-fn parse_input_packet() -> MousePacket {
-    let status = Status::read();
-    if !status.is_valid() {
-        log::error!("invalid mouse input!");
-    }
-    if !status.output_buffer_is_full() {
-        log::error!("No input.");
-    }
+fn parse_input_packet(packet: [u8; 3]) -> MousePacket {
+    // let status = Status::read();
+    // if !status.is_valid() {
+    //     log::error!("invalid mouse input!");
+    // }
+    // if !status.output_buffer_is_full() {
+    //     log::error!("No input.");
+    // }
 
-    let byte0 = MousePacket::read_one_byte();
-    let byte1 = MousePacket::read_one_byte();
-    let byte2 = MousePacket::read_one_byte();
+    // let byte0 = MousePacket::read_one_byte();
+    // let byte1 = MousePacket::read_one_byte();
+    // let byte2 = MousePacket::read_one_byte();
+    log::error!("This is parse_input_packet in kernel/comps/mouse/src/i8042_mouse.rs");
+
+    let byte0 = packet[0];
+    let byte1 = packet[1];
+    let byte2 = packet[2];
 
     MousePacket {
         left_button:   byte0 & 0x01 != 0,
@@ -116,6 +136,8 @@ fn parse_input_packet() -> MousePacket {
 }
 
 fn parse_input_event(packet: MousePacket) -> InputEvent {
+    log::error!("The packet is: L={}, R={}, M={}, X={}, Y={}", packet.left_button, packet.right_button, packet.middle_button, packet.x_movement, packet.y_movement);
+    
     // Get the current time in microseconds
     let now = read_instant();
     let time_in_microseconds = now.secs() * 1_000_000 + (now.nanos() / 1_000) as u64;
@@ -123,46 +145,47 @@ fn parse_input_event(packet: MousePacket) -> InputEvent {
     if packet.x_movement != 0 {
         InputEvent {
             time: time_in_microseconds,
-            type_: EV_REL,
-            code: REL_X,
+            type_: EventType::EvRel as u16,
+            code: RelAxis::RelX as u16,
             value: packet.x_movement as i32,
         }
     } else if packet.y_movement != 0 {
         InputEvent {
             time: time_in_microseconds,
-            type_: EV_REL,
-            code: REL_Y,
+            type_: EventType::EvRel as u16,
+            code: RelAxis::RelY as u16,
             value: packet.y_movement as i32,
         }
     } else if packet.left_button {
         InputEvent {
             time: time_in_microseconds,
-            type_: EV_KEY,
-            code: BTN_LEFT,
+            type_: EventType::EvKey as u16,
+            code: MouseKeyEvent::MouseLeft as u16,
             value: 1,
         }
     } else if packet.right_button {
         InputEvent {
             time: time_in_microseconds,
-            type_: EV_KEY,
-            code: BTN_RIGHT,
+            type_: EventType::EvKey as u16,
+            code: MouseKeyEvent::MouseRight as u16,
             value: 1,
         }
     } else if packet.middle_button {
         InputEvent {
             time: time_in_microseconds,
-            type_: EV_KEY,
-            code: BTN_MIDDLE,
+            type_: EventType::EvKey as u16,
+            code: MouseKeyEvent::MouseMiddle as u16,
             value: 1,
         }
     } else {
-        // Unknown input
-        log::error!("Wrong input for mouse!");
+        // Null input
+        // log::error!("Wrong input for mouse!");
         InputEvent {
             time: time_in_microseconds,
-            type_: EV_REL,
-            code: REL_X,
+            type_: EventType::EvRel as u16,
+            code: RelAxis::RelX as u16,
             value: 0,
         }
     }
+
 }

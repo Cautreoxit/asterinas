@@ -20,7 +20,7 @@ pub mod trap;
 
 use allocator::construct_io_mem_allocator_builder;
 use cfg_if::cfg_if;
-use device::i8042_keyboard;
+use device::i8042_device;
 use spin::Once;
 use x86::cpuid::{CpuId, FeatureInfo};
 
@@ -93,7 +93,7 @@ pub(crate) unsafe fn late_init_on_bsp() {
         }
     }
 
-    i8042_keyboard::init();
+    i8042_device::init();
 
     kernel::tsc::init_tsc_freq();
     timer::init_bsp();

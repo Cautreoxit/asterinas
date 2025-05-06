@@ -8,12 +8,12 @@ use alloc::sync::Arc;
 use aster_input::{InputDevice, InputDeviceMeta, InputEvent, input_event};
 use aster_time::tsc::read_instant;
 
-use ostd::{arch::x86::device::i8042_keyboard, trap::TrapFrame};
+use ostd::{arch::x86::device::i8042_device, trap::TrapFrame};
 use crate::alloc::string::ToString;
 use super::{InputKey, KEYBOARD_CALLBACKS};
 
 pub fn init() {
-    i8042_keyboard::register_callback(handle_keyboard_input);
+    i8042_device::register_keyboard_callback(handle_keyboard_input);
 
     aster_input::register_device("i8042_keyboard".to_string(), Arc::new(I8042Keyboard));
 }
@@ -31,6 +31,7 @@ impl InputDevice for I8042Keyboard {
 }
 
 fn handle_keyboard_input(_trap_frame: &TrapFrame) {
+    log::error!("-----This is handle_keyboard_input in kernel/comps/keyboard/src/i8042_keyboard.rs");
     let key = parse_inputkey();
 
     // Get the current time in microseconds
@@ -43,7 +44,7 @@ fn handle_keyboard_input(_trap_frame: &TrapFrame) {
         type_: 1,                   // EV_KEY (example type for key events)
         code: key as u16,           // Convert InputKey to a u16 representation
         value: 1,                   // Example value (1 for key press, 0 for release)
-    });
+    }, "i8042_keyboard");
 
     // Fixme: the callbacks are going to be replaced.
     for callback in KEYBOARD_CALLBACKS.lock().iter() {
@@ -56,7 +57,7 @@ struct ScanCode(u8);
 
 impl ScanCode {
     fn read() -> Self {
-        Self(i8042_keyboard::DATA_PORT.read())
+        Self(i8042_device::DATA_PORT.read())
     }
 
     fn is_valid(&self) -> bool {
@@ -303,7 +304,7 @@ impl Status {
     const STAT_OUTPUT_BUFFER_FULL: u8 = 0x01; /* Keyboard output buffer full */
 
     fn read() -> Self {
-        Self(i8042_keyboard::STATUS_PORT.read())
+        Self(i8042_device::STATUS_PORT.read())
     }
 
     fn is_valid(&self) -> bool {
