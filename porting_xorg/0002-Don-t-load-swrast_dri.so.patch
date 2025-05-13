@@ -1,0 +1,38 @@
+From 10abf6b760280c79523979dad03eb32d25abee15 Mon Sep 17 00:00:00 2001
+From: Wei Zhang <ruoyuan.zw@antgroup.com>
+Date: Tue, 13 May 2025 02:58:24 +0000
+Subject: [PATCH 4/4] Don't load swrast_dri.so
+
+The reason why swrast_dri.so cannot be loaded is because of an issue in
+fb.rs mmap(). When we solve the map issue, we can drop this patch
+
+Signed-off-by: Wei Zhang <ruoyuan.zw@antgroup.com>
+---
+ glx/glxdriswrast.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/glx/glxdriswrast.c b/glx/glxdriswrast.c
+index c57d80d..740f837 100644
+--- a/glx/glxdriswrast.c
++++ b/glx/glxdriswrast.c
+@@ -435,11 +435,12 @@ __glXDRIscreenProbe(ScreenPtr pScreen)
+ 
+     __glXInitExtensionEnableBits(screen->base.glx_enable_bits);
+ 
+-    screen->driver = glxProbeDriver(driverName,
+-                                    (void **) &screen->core,
+-                                    __DRI_CORE, 1,
+-                                    (void **) &screen->swrast,
+-                                    __DRI_SWRAST, 1);
++    /* screen->driver = glxProbeDriver(driverName, */
++    /*                                 (void **) &screen->core, */
++    /*                                 __DRI_CORE, 1, */
++    /*                                 (void **) &screen->swrast, */
++    /*                                 __DRI_SWRAST, 1); */
++    screen->driver = NULL;
+     if (screen->driver == NULL) {
+         goto handle_error;
+     }
+-- 
+2.43.0
+
