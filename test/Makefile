@@ -206,9 +206,9 @@ $(INITRAMFS)/sbin:
 $(INITRAMFS)/usr/bin: | $(INITRAMFS)/bin
 	@mkdir -p $@
 	@cp /usr/bin/busybox $@
-	@cp /usr/bin/Xvfb $@
-	@cp /usr/bin/Xorg $@
-	@cp /usr/bin/gtf $@
+	@cp /usr-xorg/bin/Xvfb $@
+	@cp /usr-xorg/bin/Xorg $@
+	@cp /usr-xorg/bin/gtf $@
 	@cp /usr/bin/setxkbmap $@
 	@cp /usr/bin/xkbbell $@
 	@cp /usr/bin/xkbcomp $@
@@ -239,6 +239,8 @@ $(INITRAMFS)/etc/X11:
 $(INITRAMFS)/usr/lib:
 	@mkdir -p $@
 	@cp -r /usr/lib/xorg $@
+	@rm -f $@/xorg/modules/libfbdevhw.so
+	@cp /usr-xorg/lib/x86_64-linux-gnu/xorg/modules/libfbdevhw.so $@/xorg/modules/
 
 $(INITRAMFS)/usr/lib/x86_64-linux-gnu:
 	@mkdir -p $@

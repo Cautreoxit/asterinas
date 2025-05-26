@@ -3,7 +3,7 @@
 3. build xorg-server and install
 For example: 
 ```bash
-meson setup builddir --prefix=/usr \
+meson setup builddir --prefix=/usr-xorg \
     -Dxkb_output_dir=/var/lib/xkb \
     -Doptimization=0 \
     -Ddebug=true
