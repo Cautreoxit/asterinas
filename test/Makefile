@@ -217,7 +217,6 @@ $(INITRAMFS)/usr/bin: | $(INITRAMFS)/bin
 	@cp /usr/bin/xkbvleds $@
 	@cp /usr/bin/xkbwatch $@
 	@cp /usr/bin/xeyes $@
-	@cp /usr/bin/fbset $@
 	@cp /usr/bin/xlogo $@
 	@cp /usr/bin/xmessage $@
 
