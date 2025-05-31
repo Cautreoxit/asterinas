@@ -101,6 +101,7 @@ pub fn init() {
     vdso::init();
     process::init();
     vm::memfd::init();
+    vm::shared_mem::init();
 }
 
 fn ap_init() {

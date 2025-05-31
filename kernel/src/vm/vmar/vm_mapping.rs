@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use core::{
-    cmp::{max, min}, num::NonZeroUsize, ops::Range
+    cmp::{max, min},
+    num::NonZeroUsize,
+    ops::Range,
 };
 
 use align_ext::AlignExt;
@@ -56,6 +58,8 @@ pub(super) struct VmMapping {
     /// The start of the virtual address maps to the start of the range
     /// specified in [`MappedVmo`].
     vmo: MappedVmObj,
+    /// The shared memory ID if the mapping is a shared memory mapping.
+    shared_mem_id: Option<u64>,
     /// Whether the mapping is shared.
     ///
     /// The updates to a shared mapping are visible among processes, or carried
@@ -83,6 +87,7 @@ impl VmMapping {
         map_size: NonZeroUsize,
         map_to_addr: Vaddr,
         vmo: MappedVmObj,
+        shared_mem: Option<u64>,
         is_shared: bool,
         handle_page_faults_around: bool,
         perms: VmPerms,
@@ -91,6 +96,7 @@ impl VmMapping {
             map_size,
             map_to_addr,
             vmo,
+            shared_mem_id: shared_mem,
             is_shared,
             handle_page_faults_around,
             perms,
@@ -122,6 +128,11 @@ impl VmMapping {
     // Returns the permissions of pages in the mapping.
     pub fn perms(&self) -> VmPerms {
         self.perms
+    }
+
+    /// Returns the shared memory ID if the mapping is a shared memory mapping.
+    pub fn shared_mem_id(&self) -> Option<u64> {
+        self.shared_mem_id
     }
 }
 

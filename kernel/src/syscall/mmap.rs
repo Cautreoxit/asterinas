@@ -7,7 +7,10 @@ use core::panic;
 use align_ext::AlignExt;
 use aster_bigtcp::socket;
 use aster_rights::Rights;
-use ostd::{mm::{CachePolicy, PageFlags, PageProperty}, task::disable_preempt};
+use ostd::{
+    mm::{CachePolicy, PageFlags, PageProperty},
+    task::disable_preempt,
+};
 
 use super::SyscallReturn;
 use crate::{
@@ -18,10 +21,21 @@ use crate::{
     prelude::*,
     vm::{
         perms::VmPerms,
+        shared_mem::SHM_OBJ_MANAGER,
         vmar::is_userspace_vaddr,
         vmo::{VmoOptions, VmoRightsOp},
     },
 };
+
+//// The mmap resource handle.
+/// This enum represents whether the mmap resource is backed by a file or shared memory.
+///
+/// TODO: might be unreaonable struct name
+#[derive(Copy, Clone, Debug)]
+pub enum MmapHandle {
+    File(FileDesc),
+    Shared(u64),
+}
 
 pub fn sys_mmap(
     addr: u64,
@@ -39,25 +53,25 @@ pub fn sys_mmap(
         len as usize,
         perms,
         option,
-        fd as _,
+        MmapHandle::File(fd as _),
         offset as usize,
         ctx,
     )?;
     Ok(SyscallReturn::Return(res as _))
 }
 
-fn do_sys_mmap(
+pub fn do_sys_mmap(
     addr: Vaddr,
     len: usize,
     vm_perms: VmPerms,
     mut option: MMapOptions,
-    fd: FileDesc,
+    resource_handle: MmapHandle,
     offset: usize,
     ctx: &Context,
 ) -> Result<Vaddr> {
     debug!(
-        "addr = 0x{:x}, len = 0x{:x}, perms = {:?}, option = {:?}, fd = {}, offset = 0x{:x}",
-        addr, len, vm_perms, option, fd, offset
+        "addr = 0x{:x}, len = 0x{:x}, perms = {:?}, option = {:?}, resource_handle = {:?}, offset = 0x{:x}",
+        addr, len, vm_perms, option, resource_handle, offset
     );
 
     if option.flags.contains(MMapFlags::MAP_FIXED_NOREPLACE) {
@@ -129,45 +143,64 @@ fn do_sys_mmap(
                 options = options.vmo(shared_vmo);
             }
         } else {
-            let mut file_table = ctx.thread_local.borrow_file_table_mut();
-            let file = get_file_fast!(&mut file_table, fd);
-            let inode_handle = file.as_inode_or_err()?;
+            match resource_handle {
+                MmapHandle::File(fd) => {
+                    let mut file_table = ctx.thread_local.borrow_file_table_mut();
+                    let file = get_file_fast!(&mut file_table, fd);
+                    let inode_handle = file.as_inode_or_err()?;
 
-            let access_mode = inode_handle.access_mode();
-            if vm_perms.contains(VmPerms::READ) && !access_mode.is_readable() {
-                return_errno!(Errno::EACCES);
-            }
-            if option.typ() == MMapType::Shared
-                && vm_perms.contains(VmPerms::WRITE)
-                && !access_mode.is_writable()
-            {
-                return_errno!(Errno::EACCES);
-            }
-
-            let inode = inode_handle.dentry().inode();
-            match inode.page_cache() {
-                Some(page_cache) => {
-                    options = options.vmo(page_cache.to_dyn());
-                }
-                None => {
-                    // Here we assume that this file is used for mapping I/O 
-                    // memory into userspace.
-                    // let range = file.mmap(addr, len, offset, vm_perms, ctx);
-                    // print!("mmap: file is a page cache, range: {:?}", range);
-                    if let Some(io_mem) = file.get_io_mem() {
-                        println!("mmap: io_mem: {:?}, len {}", io_mem.length(), len);
-                        //assert!(len == io_mem.length());
-                        io_mem_ostd = Some(io_mem.clone());
-                        options = options.iomem(io_mem);
-                    } else {
-                        panic!("mmap: file neither is a page cache nor a iomem");
+                    let access_mode = inode_handle.access_mode();
+                    if vm_perms.contains(VmPerms::READ) && !access_mode.is_readable() {
+                        return_errno!(Errno::EACCES);
                     }
-                }
-            };
+                    if option.typ() == MMapType::Shared
+                        && vm_perms.contains(VmPerms::WRITE)
+                        && !access_mode.is_writable()
+                    {
+                        return_errno!(Errno::EACCES);
+                    }
 
-            options = options
-                .vmo_offset(offset)
-                .handle_page_faults_around();
+                    let inode = inode_handle.dentry().inode();
+                    match inode.page_cache() {
+                        Some(page_cache) => {
+                            options = options.vmo(page_cache.to_dyn());
+                        }
+                        None => {
+                            // Here we assume that this file is used for mapping I/O
+                            // memory into userspace.
+                            // let range = file.mmap(addr, len, offset, vm_perms, ctx);
+                            // print!("mmap: file is a page cache, range: {:?}", range);
+                            if let Some(io_mem) = file.get_io_mem() {
+                                println!("mmap: io_mem: {:?}, len {}", io_mem.length(), len);
+                                //assert!(len == io_mem.length());
+                                io_mem_ostd = Some(io_mem.clone());
+                                options = options.iomem(io_mem);
+                            } else {
+                                panic!("mmap: file neither is a page cache nor a iomem");
+                            }
+                        }
+                    }
+                    let inode = inode_handle.dentry().inode();
+                    inode
+                        .page_cache()
+                        .ok_or(Error::with_message(
+                            Errno::EBADF,
+                            "File does not have page cache",
+                        ))?
+                        .to_dyn();
+                }
+                MmapHandle::Shared(shared_id) => {
+                    options = options.shared_mem_id(shared_id);
+                    let shm_manager = SHM_OBJ_MANAGER.get().ok_or(Error::with_message(
+                        Errno::EINVAL,
+                        "SHM_OBJ_MANAGER not initialized",
+                    ))?;
+                    let vmo = shm_manager.get_shm_obj(shared_id).unwrap().vmo()?;
+                    options = options.vmo(vmo);
+                }
+            }
+
+            options = options.vmo_offset(offset).handle_page_faults_around();
         }
 
         options
@@ -181,11 +214,8 @@ fn do_sys_mmap(
         // let len = len.align_up(PAGE_SIZE);
 
         let preempt_guard = disable_preempt();
-        let mut cursor = vm_space.cursor_mut(&preempt_guard, &(map_addr..map_addr+len))?;
-        let io_page_prop = PageProperty::new(
-            PageFlags::from(vm_perms),
-            CachePolicy::Uncacheable,
-        );
+        let mut cursor = vm_space.cursor_mut(&preempt_guard, &(map_addr..map_addr + len))?;
+        let io_page_prop = PageProperty::new(PageFlags::from(vm_perms), CachePolicy::Uncacheable);
         cursor.map_iomem(io_mem, io_page_prop);
     }
 
