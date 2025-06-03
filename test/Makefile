@@ -238,8 +238,7 @@ $(INITRAMFS)/etc/X11:
 $(INITRAMFS)/usr/lib:
 	@mkdir -p $@
 	@cp -r /usr/lib/xorg $@
-	@rm -f $@/xorg/modules/libfbdevhw.so
-	@cp /usr-xorg/lib/x86_64-linux-gnu/xorg/modules/libfbdevhw.so $@/xorg/modules/
+	@cp -r /usr-xorg/lib/x86_64-linux-gnu/xorg/modules/ $@/xorg/modules/
 
 $(INITRAMFS)/usr/lib/x86_64-linux-gnu:
 	@mkdir -p $@
