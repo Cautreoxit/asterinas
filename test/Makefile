@@ -36,6 +36,9 @@ INITRAMFS_EMPTY_DIRS := \
 
 INITRAMFS_ALL_DIRS := \
 	$(INITRAMFS)/etc \
+	$(INITRAMFS)/run \
+	$(INITRAMFS)/var/run \
+	$(INITRAMFS)/run/user/1000 \
 	$(INITRAMFS)/lib/x86_64-linux-gnu \
 	$(INITRAMFS)/lib64 \
 	$(INITRAMFS)/bin \
@@ -46,6 +49,7 @@ INITRAMFS_ALL_DIRS := \
 	$(INITRAMFS)/test \
 	$(INITRAMFS)/benchmark \
 	$(INITRAMFS)/etc/X11 \
+	$(INITRAMFS)/etc/dbus-1 \
 	$(INITRAMFS)/usr/lib \
 	$(INITRAMFS)/usr/lib/x86_64-linux-gnu \
 	$(INITRAMFS)/usr/lib/x86_64-linux-gnu/dri \
@@ -112,7 +116,7 @@ $(INITRAMFS)/lib/x86_64-linux-gnu: | $(VDSO_LIB)
 	@cp -L /lib/x86_64-linux-gnu/libXdmcp.so.6 $@
 	@cp -L /lib/x86_64-linux-gnu/libXfont2.so.2 $@
 	@cp -L /lib/x86_64-linux-gnu/libxshmfence.so.1 $@
-	@cp -L /lib/x86_64-linux-gnu/libdbus-1.so.3 $@
+	@cp -L /root/ubuntu/dbus/dbus-1.12.20/dbus/.libs/libdbus-1.so.3 $@
 	@cp -L /lib/x86_64-linux-gnu/libudev.so.1 $@
 	@cp -L /lib/x86_64-linux-gnu/libdrm.so.2 $@
 	@cp -L /lib/x86_64-linux-gnu/libxcvt.so.0 $@
@@ -192,6 +196,20 @@ $(INITRAMFS)/lib64:
 $(INITRAMFS)/etc:
 	@mkdir -p $@
 	@cp $(CUR_DIR)/etc/* $@
+	@cp -L /etc/machine-id $@/machine-id
+
+$(INITRAMFS)/var/run: | $(INITRAMFS)/run
+	@rm -rf $@
+	@ln -sf ../run $@
+
+$(INITRAMFS)/run:
+	@mkdir -p $@
+	@mkdir -p $@/dbus
+	@chown messagebus:messagebus $@/dbus
+	@chmod 755 $@/dbus
+
+$(INITRAMFS)/run/user/1000:
+	@mkdir -p $@
 
 # Install busybox into /bin and /usr/bin.
 $(INITRAMFS)/bin:
@@ -219,6 +237,20 @@ $(INITRAMFS)/usr/bin: | $(INITRAMFS)/bin
 	@cp /usr/bin/xeyes $@
 	@cp /usr/bin/xlogo $@
 	@cp /usr/bin/xmessage $@
+	@echo "#!/bin/sh" > $@/run_xorg.sh
+	@echo "./usr/bin/Xorg :0 -modulepath /usr/lib/xorg/modules -config /etc/X11/xorg.conf.d/10-fbdev.conf -logverbose 6 -logfile ~/xorg_debug.log -novtswitch -keeptty -keyboard "keyboard" -pointer "mouse0" &" >> $@/run_xorg.sh
+	@chmod +x $@/run_xorg.sh
+	@cp /root/ubuntu/dbus/dbus-1.12.20/setup_dbus.sh $@/setup_dbus.sh
+	@echo "/usr/bin/dbus-send --system --dest=org.freedesktop.DBus --print-reply /org/freedesktop/DBus org.freedesktop.DBus.ListNames" > $@/run_dbus-send.sh
+	@echo "/usr/bin/dbus-send --session --dest=org.freedesktop.DBus --print-reply /org/freedesktop/DBus org.freedesktop.DBus.ListNames" >> $@/run_dbus-send.sh
+	@chmod +x $@/run_dbus-send.sh
+	@cp /root/ubuntu/dbus/dbus-1.12.20/bus/.libs/dbus-daemon $@/dbus-daemon
+	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/.libs/dbus-uuidgen $@/dbus-uuidgen
+	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/.libs/dbus-launch $@/dbus-launch
+	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/.libs/dbus-send $@/dbus-send
+	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/.libs/dbus-monitor $@/dbus-monitor
+	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/dbus-cleanup-sockets $@/dbus-cleanup-sockets
+
 
 $(INITRAMFS)/usr/local:
 	@mkdir -p $@
@@ -230,10 +262,20 @@ $(INITRAMFS)/usr/share:
 	@mkdir -p $@
 	@cp -r /usr/share/fonts $@
 	@cp -r /usr/share/X11 $@
+	@mkdir -p $@/dbus-1
+	@cp /root/ubuntu/dbus/dbus-1.12.20/bus/system.conf $@/dbus-1/system.conf
+	@cp /root/ubuntu/dbus/dbus-1.12.20/bus/session.conf $@/dbus-1/session.conf
 
 $(INITRAMFS)/etc/X11:
 	@mkdir -p $@
 	@cp -r /etc/X11/xorg.conf.d $@
+
+$(INITRAMFS)/etc/dbus-1:
+	@mkdir -p $@
+	@cp -r /etc/dbus-1/system.d $@
+	@cp -r /etc/dbus-1/session.d $@
+	@cp -r /root/ubuntu/dbus/dbus-1.12.20/bus/legacy-config/system.conf $@
+	@cp -r /root/ubuntu/dbus/dbus-1.12.20/bus/session.conf $@
 
 $(INITRAMFS)/usr/lib:
 	@mkdir -p $@
