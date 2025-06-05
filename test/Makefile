@@ -177,6 +177,46 @@ $(INITRAMFS)/lib/x86_64-linux-gnu: | $(VDSO_LIB)
 	@cp -L /lib/x86_64-linux-gnu/libglib-2.0.so.0 $@
 	@cp -L /lib/x86_64-linux-gnu/libXaw.so.7 $@
 	@cp -L /lib/x86_64-linux-gnu/libXpm.so.4 $@
+	@cp -L /lib/x86_64-linux-gnu/libXfixes.so.3 $@
+	@cp -L /lib/x86_64-linux-gnu/libXinerama.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/libXrandr.so.2 $@
+	@cp -L /lib/x86_64-linux-gnu/libXcursor.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/libXcomposite.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/libXdamage.so.1 $@
+	@#required for GTK3
+	@cp -L /lib/x86_64-linux-gnu/libgdk-3.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libgtk-3.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libgdk_pixbuf-2.0.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libpangocairo-1.0.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libpango-1.0.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libharfbuzz.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libcairo.so.2 $@
+	@cp -L /lib/x86_64-linux-gnu/libepoxy.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libgio-2.0.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libgmodule-2.0.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libcairo-gobject.so.2 $@
+	@cp -L /lib/x86_64-linux-gnu/libatk-1.0.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libatk-bridge-2.0.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libfribidi.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libpangoft2-1.0.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libfontconfig.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/libgraphite2.so.3 $@
+	@cp -L /lib/x86_64-linux-gnu/libjpeg.so.8 $@
+	@cp -L /lib/x86_64-linux-gnu/libthai.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libxkbcommon.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libmount.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/libblkid.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/liblz4.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/libxcb-shm.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libxcb-render.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libpcre.so.3 $@
+	@cp -L /lib/x86_64-linux-gnu/libdatrie.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/libatspi.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libwayland-cursor.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libwayland-egl.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/libwayland-client.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libselinux.so.1 $@
+	@cp -L /lib/x86_64-linux-gnu/libpcre2-8.so.0 $@
 
 $(VDSO_LIB): | $(VDSO_DIR) $(BINARY_CACHE_DIR)/vdso64.so
 	@# TODO: use a custom compiled vdso.so file in the future.
@@ -250,7 +290,8 @@ $(INITRAMFS)/usr/bin: | $(INITRAMFS)/bin
 	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/.libs/dbus-send $@/dbus-send
 	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/.libs/dbus-monitor $@/dbus-monitor
 	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/dbus-cleanup-sockets $@/dbus-cleanup-sockets
-
+	@cp /usr/bin/gtk3-demo $@
+	@cp /root/ubuntu/tools/hello-gtk/hello-gtk $@
 
 $(INITRAMFS)/usr/local:
 	@mkdir -p $@
@@ -265,6 +306,14 @@ $(INITRAMFS)/usr/share:
 	@mkdir -p $@/dbus-1
 	@cp /root/ubuntu/dbus/dbus-1.12.20/bus/system.conf $@/dbus-1/system.conf
 	@cp /root/ubuntu/dbus/dbus-1.12.20/bus/session.conf $@/dbus-1/session.conf
+	@mkdir -p $@/glib-2.0/schemas
+	@cp -r /usr/share/glib-2.0/schemas/* $@/glib-2.0/schemas/
+	@mkdir -p $@/themes/Default/gtk-3.0
+	@cp -r /usr/share/themes/Default/gtk-3.0/* $@/themes/Default/gtk-3.0/
+	@mkdir -p $@/icons/Adwaita
+	@cp -r /usr/share/icons/Adwaita/* $@/icons/Adwaita/
+	@cp -r /usr/share/locale $@
+	@cp -r /usr/share/gtk-3.0 $@
 
 $(INITRAMFS)/etc/X11:
 	@mkdir -p $@
@@ -285,6 +334,7 @@ $(INITRAMFS)/usr/lib/x86_64-linux-gnu:
 	@mkdir -p $@
 	@cp -L /usr/lib/x86_64-linux-gnu/libxkbfile.so.1 $@
 	@cp -L /usr/lib/x86_64-linux-gnu/libglapi.so.0 $@
+	@cp -r /usr/lib/x86_64-linux-gnu/gtk-3.0/* $@/gtk-3.0/
 
 $(INITRAMFS)/usr/lib/x86_64-linux-gnu/dri:
 	@mkdir -p $@
