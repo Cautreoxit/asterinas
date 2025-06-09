@@ -217,6 +217,10 @@ $(INITRAMFS)/lib/x86_64-linux-gnu: | $(VDSO_LIB)
 	@cp -L /lib/x86_64-linux-gnu/libwayland-client.so.0 $@
 	@cp -L /lib/x86_64-linux-gnu/libselinux.so.1 $@
 	@cp -L /lib/x86_64-linux-gnu/libpcre2-8.so.0 $@
+	@#required for strace
+	@cp -L /lib/x86_64-linux-gnu/libunwind-ptrace.so.0 $@
+	@cp -L /lib/x86_64-linux-gnu/libunwind-x86_64.so.8 $@
+	@cp -L /lib/x86_64-linux-gnu/libunwind.so.8 $@
 
 $(VDSO_LIB): | $(VDSO_DIR) $(BINARY_CACHE_DIR)/vdso64.so
 	@# TODO: use a custom compiled vdso.so file in the future.
@@ -292,6 +296,8 @@ $(INITRAMFS)/usr/bin: | $(INITRAMFS)/bin
 	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/dbus-cleanup-sockets $@/dbus-cleanup-sockets
 	@cp /usr/bin/gtk3-demo $@
 	@cp /root/ubuntu/tools/hello-gtk/hello-gtk $@
+	@cp /root/ubuntu/tools/mknod_dev/setup_dev.sh $@
+	@cp /usr/bin/strace $@
 
 $(INITRAMFS)/usr/local:
 	@mkdir -p $@
