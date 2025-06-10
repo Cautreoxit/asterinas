@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
+use core::mem;
+
 use super::SyscallReturn;
 use crate::{
     fs::{
@@ -8,7 +10,6 @@ use crate::{
     },
     prelude::*,
 };
-use core::mem;
 
 pub fn sys_ioctl(fd: FileDesc, cmd: u32, arg: Vaddr, ctx: &Context) -> Result<SyscallReturn> {
     // log::error!("-------------Coming into sys_ioctl! with cmd: {:#x}", cmd);

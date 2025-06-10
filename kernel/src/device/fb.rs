@@ -5,8 +5,10 @@
 use align_ext::AlignExt;
 pub(crate) use aster_framebuffer::{get_framebuffer_info, FrameBufferBitfield};
 use ostd::{
-    boot::boot_info, io::IoMem, task::disable_preempt,
+    boot::boot_info,
+    io::IoMem,
     mm::{CachePolicy, Frame, PageFlags, PageProperty, UFrame},
+    task::disable_preempt,
     Pod,
 };
 
@@ -34,19 +36,19 @@ pub struct FbVarScreenInfo {
     pub bits_per_pixel: u32, // Guess what
     pub grayscale: u32,      // 0 = color, 1 = grayscale, >1 = FOURCC
     // Add other fields as needed
-    pub red: FrameBufferBitfield,   // Bitfield in framebuffer memory if true color
+    pub red: FrameBufferBitfield, // Bitfield in framebuffer memory if true color
     pub green: FrameBufferBitfield, // Else only length is significant
     pub blue: FrameBufferBitfield,
     pub transp: FrameBufferBitfield, // Transparency
-    pub nonstd: u32,        // Non-standard pixel format
-    pub activate: u32,      // See FB_ACTIVATE_*
-    pub height: u32,        // Height of picture in mm
-    pub width: u32,         // Width of picture in mm
-    pub accel_flags: u32,   // (OBSOLETE) see fb_info.flags
-    pub pixclock: u32,      // Pixel clock in ps (pico seconds)
-    pub left_margin: u32,   // Time from sync to picture
-    pub right_margin: u32,  // Time from picture to sync
-    pub upper_margin: u32,  // Time from sync to picture
+    pub nonstd: u32,                 // Non-standard pixel format
+    pub activate: u32,               // See FB_ACTIVATE_*
+    pub height: u32,                 // Height of picture in mm
+    pub width: u32,                  // Width of picture in mm
+    pub accel_flags: u32,            // (OBSOLETE) see fb_info.flags
+    pub pixclock: u32,               // Pixel clock in ps (pico seconds)
+    pub left_margin: u32,            // Time from sync to picture
+    pub right_margin: u32,           // Time from picture to sync
+    pub upper_margin: u32,           // Time from sync to picture
     pub lower_margin: u32,
     pub hsync_len: u32,     // Length of horizontal sync
     pub vsync_len: u32,     // Length of vertical sync
@@ -211,7 +213,7 @@ impl FileIo for Fb {
     //         );
 
     //         let preempt_guard = disable_preempt();
-    
+
     //         // Create a mutable cursor for the virtual address range
     //         let mut cursor = root_vmar.vm_space().cursor_mut(&preempt_guard, &vaddr_range)?;
     //         println!("Got cursor");
@@ -259,17 +261,15 @@ impl FileIo for Fb {
                     screen_info.transp = framebuffer.reserved();
 
                     // Data are set according to the linux efifb driver
-                    screen_info.pixclock = 10000000 / framebuffer.width() as u32
-                        * 1000
-                        / framebuffer.height() as u32;
-                        screen_info.left_margin = framebuffer.width() as u32 / 8 & 0xf8;
+                    screen_info.pixclock =
+                        10000000 / framebuffer.width() as u32 * 1000 / framebuffer.height() as u32;
+                    screen_info.left_margin = framebuffer.width() as u32 / 8 & 0xf8;
                     screen_info.right_margin = 32;
                     screen_info.upper_margin = 16;
                     screen_info.lower_margin = 4;
 
                     screen_info.vsync_len = 4;
                     screen_info.hsync_len = framebuffer.width() as u32 / 8 & 0xf8;
-
 
                     current_userspace!().write_val(arg, &screen_info)?;
 

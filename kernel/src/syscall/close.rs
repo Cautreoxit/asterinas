@@ -5,7 +5,10 @@ use ostd::sync::RwArc;
 
 use super::SyscallReturn;
 use crate::{
-    fs::{file_table::FileDesc, notify::fsnotify_close, file_table::FdFlags},
+    fs::{
+        file_table::{FdFlags, FileDesc},
+        notify::fsnotify_close,
+    },
     prelude::*,
 };
 

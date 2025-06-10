@@ -7,24 +7,21 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, vec::Vec};
-use core::ops::Deref;
-use spin::Once;
+use core::{hint::spin_loop, ops::Deref};
+
+use component::{init_component, ComponentInitError};
 use ostd::{
     arch::{device::io_port::ReadWriteAccess, IO_APIC},
     io::IoPort,
     sync::SpinLock,
     trap::IrqLine,
 };
-use core::hint::spin_loop;
+use spin::Once;
 
-use component::{init_component, ComponentInitError};
-
-mod i8042_mouse;
 mod i8042_keyboard;
+mod i8042_mouse;
 
-use crate::i8042_keyboard::handle_keyboard_input;
-use crate::i8042_mouse::handle_mouse_input;
-
+use crate::{i8042_keyboard::handle_keyboard_input, i8042_mouse::handle_mouse_input};
 
 static MOUSE_CALLBACKS: SpinLock<Vec<Box<MouseCallback>>> = SpinLock::new(Vec::new());
 
@@ -78,14 +75,13 @@ fn init() -> Result<(), ComponentInitError> {
     io_apic.enable(1, k_irq_line.clone()).unwrap();
     io_apic.enable(12, m_irq_line.clone()).unwrap();
 
-    KEYBOARD_IRQ_LINE.call_once(|| {SpinLock::new(k_irq_line)});
-    MOUSE_IRQ_LINE.call_once(|| {SpinLock::new(m_irq_line)});
-    
+    KEYBOARD_IRQ_LINE.call_once(|| SpinLock::new(k_irq_line));
+    MOUSE_IRQ_LINE.call_once(|| SpinLock::new(m_irq_line));
+
     i8042_keyboard::init();
     i8042_mouse::init();
     Ok(())
 }
-
 
 /// Initialize i8042 controller
 fn init_i8042_controller() {
@@ -99,10 +95,10 @@ fn init_i8042_controller() {
     }
 
     // Set up the configuration
-    STATUS_PORT.get().unwrap().write(READ_CONFIG); 
+    STATUS_PORT.get().unwrap().write(READ_CONFIG);
     let mut config = DATA_PORT.get().unwrap().read();
-    config |= ENABLE_KEYBOARD_BIT; 
-    config |= ENABLE_MOUSE_BIT; 
+    config |= ENABLE_KEYBOARD_BIT;
+    config |= ENABLE_MOUSE_BIT;
     config &= !ENABLE_MOUSE_CLOCK_BIT;
 
     STATUS_PORT.get().unwrap().write(WRITE_CONFIG);
@@ -137,7 +133,7 @@ fn wait_ack() {
         if STATUS_PORT.get().unwrap().read() & 0x1 != 0 {
             let data = DATA_PORT.get().unwrap().read();
             if data == 0xFA {
-                return 
+                return;
             }
         }
         spin_loop();
@@ -153,8 +149,6 @@ pub fn mouse_register_callback(callback: &'static MouseCallback) {
         .lock()
         .push(Box::new(callback));
 }
-
-
 
 static KEYBOARD_CALLBACKS: SpinLock<Vec<Box<KeyboardCallback>>> = SpinLock::new(Vec::new());
 

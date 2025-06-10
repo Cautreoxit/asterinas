@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use super::SyscallReturn;
 use core::mem;
+
+use super::SyscallReturn;
 use crate::{
     fs::file_table::{get_file_fast, FileDesc},
     prelude::*,
@@ -39,8 +40,8 @@ pub fn sys_getsockopt(
         // Hardcoded peer credentials for testing
         let hardcoded_creds = PeerCred {
             pid: 1234, // Example process ID
-            uid: 0, // Example user ID
-            gid: 0, // Example group ID
+            uid: 0,    // Example user ID
+            gid: 0,    // Example group ID
         };
 
         // Write hardcoded credentials to user space
@@ -55,7 +56,8 @@ pub fn sys_getsockopt(
             )
         };
         // Create a VmReader from the byte slice
-        let mut vm_reader = unsafe { VmReader::from_kernel_space(creds_bytes.as_ptr(), creds_bytes.len()) };
+        let mut vm_reader =
+            unsafe { VmReader::from_kernel_space(creds_bytes.as_ptr(), creds_bytes.len()) };
 
         // Write the byte slice to user space
         user_space.write_bytes(optval, &mut vm_reader)?;
@@ -63,7 +65,6 @@ pub fn sys_getsockopt(
 
         return Ok(SyscallReturn::Return(0));
     }
-
 
     let mut raw_option = new_raw_socket_option(level, optname)?;
     debug!("raw option: {:?}", raw_option);

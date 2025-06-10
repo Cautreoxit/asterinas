@@ -3,18 +3,18 @@
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventType {
-    EvSyn = 0x00,        // Synchronization events
-    EvKey = 0x01,        // Key press/release events
-    EvRel = 0x02,        // Relative movement events
-    EvAbs = 0x03,        // Absolute position events
-    EvMsc = 0x04,        // Miscellaneous events
-    EvSw = 0x05,         // Switch events
-    EvLed = 0x11,        // LED events
-    EvSnd = 0x12,        // Sound events
-    EvRep = 0x14,        // Repeat events
-    EvFf = 0x15,         // Force feedback events
-    EvPwr = 0x16,        // Power management events
-    EvFfStatus = 0x17,   // Force feedback status events
+    EvSyn = 0x00,      // Synchronization events
+    EvKey = 0x01,      // Key press/release events
+    EvRel = 0x02,      // Relative movement events
+    EvAbs = 0x03,      // Absolute position events
+    EvMsc = 0x04,      // Miscellaneous events
+    EvSw = 0x05,       // Switch events
+    EvLed = 0x11,      // LED events
+    EvSnd = 0x12,      // Sound events
+    EvRep = 0x14,      // Repeat events
+    EvFf = 0x15,       // Force feedback events
+    EvPwr = 0x16,      // Power management events
+    EvFfStatus = 0x17, // Force feedback status events
 }
 // Maximum value for event types
 const EV_MAX: usize = 0x1f;
@@ -46,13 +46,13 @@ impl TryFrom<u8> for EventType {
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropType {
-    Pointer = 0x00,         // Needs a pointer
-    Direct = 0x01,          // Direct input devices
-    ButtenPad = 0x02,       // Has button(s) under pad
-    SemiMT = 0x03,          // Touch rectangle only
-    TopButtonPad = 0x04,    // Softbuttons at top of pad
-    PointingStick = 0x05,   // Is a pointing stick
-    Accelerometer = 0x06,   // Has accelerometer       
+    Pointer = 0x00,       // Needs a pointer
+    Direct = 0x01,        // Direct input devices
+    ButtenPad = 0x02,     // Has button(s) under pad
+    SemiMT = 0x03,        // Touch rectangle only
+    TopButtonPad = 0x04,  // Softbuttons at top of pad
+    PointingStick = 0x05, // Is a pointing stick
+    Accelerometer = 0x06, // Has accelerometer
 }
 // Maximum value for prop types
 const PROP_MAX: usize = 0x1f;
@@ -398,8 +398,8 @@ pub enum KeyEvent {
     KeyProg2 = 149,
     KeyWww = 150,
     KeyMsdos = 151,
-    KeyCoffee = 152,         // Also known as KeyScreenLock
-    KeyRotateDisplay = 153,  // Also known as KeyDirection
+    KeyCoffee = 152,        // Also known as KeyScreenLock
+    KeyRotateDisplay = 153, // Also known as KeyDirection
     KeyCycleWindows = 154,
     KeyMail = 155,
     KeyBookmarks = 156,
@@ -494,7 +494,7 @@ pub enum KeyEvent {
     KeyBrightnessCycle = 243,
     KeyBrightnessAuto = 244, // Also known as KeyBrightnessZero
     KeyDisplayOff = 245,
-    KeyWwan = 246,           // Also known as KeyWimax
+    KeyWwan = 246, // Also known as KeyWimax
     KeyRfKill = 247,
     KeyMicMute = 248,
 

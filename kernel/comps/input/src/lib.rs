@@ -15,15 +15,16 @@ use core::{any::Any, fmt::Debug};
 use component::{init_component, ComponentInitError};
 use ostd::{sync::SpinLock, Pod};
 use spin::Once;
+
 use crate::event_type_codes::*;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct InputEvent {
-    pub time: u64,    // Timestamp in microseconds
-    pub type_: u16,   // Event type (e.g., EV_KEY, EV_REL)
-    pub code: u16,    // Event code (e.g., KEY_A, REL_X)
-    pub value: i32,   // Event value (e.g., 1 for key press, 0 for key release)
+    pub time: u64,  // Timestamp in microseconds
+    pub type_: u16, // Event type (e.g., EV_KEY, EV_REL)
+    pub code: u16,  // Event code (e.g., KEY_A, REL_X)
+    pub value: i32, // Event value (e.g., 1 for key press, 0 for key release)
 }
 
 impl InputEvent {
@@ -45,18 +46,18 @@ struct Connection {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod)]
 pub struct InputID {
-    pub bustype: u16,       // Bus type
-    pub vendor_id: u16,     // Vendor ID
-    pub product_id: u16,    // Product ID
-    pub version: u16,       // Version of the device
+    pub bustype: u16,    // Bus type
+    pub vendor_id: u16,  // Vendor ID
+    pub product_id: u16, // Product ID
+    pub version: u16,    // Version of the device
 }
 #[derive(Debug, Clone)]
 pub struct InputDeviceMeta {
-    pub name: String,       // Name of the device
-    pub phys: String,       // Physical location of the device
-    pub uniq: String,       // Unique string of the device
-    pub version: u32,       // Version of the device
-    pub id: InputID,        // Input_id of the device
+    pub name: String, // Name of the device
+    pub phys: String, // Physical location of the device
+    pub uniq: String, // Unique string of the device
+    pub version: u32, // Version of the device
+    pub id: InputID,  // Input_id of the device
 }
 
 pub trait InputDevice: Send + Sync + Any {
@@ -85,8 +86,8 @@ pub trait InputHandler: Send + Sync {
 
 struct Component {
     input_device_table: SpinLock<BTreeMap<String, Arc<dyn InputDevice>>>, // Manages input devices
-    connections: SpinLock<Vec<Connection>>,                              // Manages connections
-    input_handlers: SpinLock<Vec<Arc<dyn InputHandler>>>,                // Manages input handlers
+    connections: SpinLock<Vec<Connection>>,                               // Manages connections
+    input_handlers: SpinLock<Vec<Arc<dyn InputHandler>>>,                 // Manages input handlers
 }
 
 impl Component {
@@ -114,14 +115,13 @@ impl Component {
             .collect()
     }
 
-    pub fn acquire_connection(
-        &self,
-        device: Arc<dyn InputDevice>,
-        handler: Arc<dyn InputHandler>,
-    ) {
+    pub fn acquire_connection(&self, device: Arc<dyn InputDevice>, handler: Arc<dyn InputHandler>) {
         let mut connections = self.connections.lock();
 
-        if connections.iter().any(|conn| Arc::ptr_eq(&conn.device, &device) && Arc::ptr_eq(&conn.handler, &handler)) {
+        if connections
+            .iter()
+            .any(|conn| Arc::ptr_eq(&conn.device, &device) && Arc::ptr_eq(&conn.handler, &handler))
+        {
             return;
         }
 
@@ -155,7 +155,11 @@ impl Component {
             if connection.device.metadata().name != str {
                 continue;
             }
-            if connection.handler.supported_event_types().contains(&event.type_) {
+            if connection
+                .handler
+                .supported_event_types()
+                .contains(&event.type_)
+            {
                 connection.handler.handle_event(event, str).unwrap();
             }
         }

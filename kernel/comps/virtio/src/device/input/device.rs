@@ -4,19 +4,16 @@ use alloc::{
     boxed::Box,
     string::{String, ToString},
     sync::Arc,
+    vec,
     vec::Vec,
 };
 use core::{fmt::Debug, iter, mem};
 
 use aster_input::{
-    event_type_codes::KeyStatus,
-    InputEvent,
+    event_type_codes::{KeyStatus, *},
+    InputDevice as AsterInputDevice, InputDeviceMeta, InputEvent, InputID,
 };
 use aster_util::{field_ptr, safe_ptr::SafePtr};
-use aster_input::{InputDevice as AsterInputDevice, InputDeviceMeta, InputID};
-use alloc::vec;
-use aster_input::event_type_codes::*;
-
 use bitflags::bitflags;
 use log::{debug, info};
 use ostd::{
@@ -233,7 +230,7 @@ impl InputDevice {
             };
 
             let event = InputEvent {
-                time: 0, // Replace with actual timestamp if available
+                time: 0,     // Replace with actual timestamp if available
                 type_: 0x01, // EV_KEY
                 code: event.code,
                 value: match status {
@@ -241,7 +238,7 @@ impl InputDevice {
                     KeyStatus::Released => 0,
                 },
             };
-    
+
             info!("Input Event:{:?}", event);
 
             for callback in callbacks.iter() {
@@ -265,9 +262,9 @@ impl AsterInputDevice for InputDevice {
     fn metadata(&self) -> InputDeviceMeta {
         let id = InputID {
             bustype: 0x11,
-            vendor_id: 0x1234,   
-            product_id: 0x5678,  
-            version: 1,       
+            vendor_id: 0x1234,
+            product_id: 0x5678,
+            version: 1,
         };
         InputDeviceMeta {
             name: self.query_config_id_name(),

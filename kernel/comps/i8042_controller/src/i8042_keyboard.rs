@@ -2,25 +2,24 @@
 
 //! The i8042 keyboard driver.
 
+use alloc::{sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use ostd::trap::TrapFrame;
-use alloc::{sync::Arc, vec::Vec};
-use aster_input::{InputDevice, InputDeviceMeta, InputEvent, input_event, InputID};
+use aster_input::{
+    event_type_codes::*, input_event, InputDevice, InputDeviceMeta, InputEvent, InputID,
+};
 use aster_time::tsc::read_instant;
-use aster_input::event_type_codes::*;
-use alloc::vec;
+use ostd::trap::TrapFrame;
 
-use crate::alloc::string::ToString;
 use super::{InputKey, KEYBOARD_CALLBACKS};
-
-use crate::DATA_PORT;
-use crate::STATUS_PORT;
-
+use crate::{alloc::string::ToString, DATA_PORT, STATUS_PORT};
 
 pub fn init() {
     log::error!("This is init in kernel/comps/keyboard/src/i8042_keyboard.rs");
-    aster_input::register_device("AT Translated Set 2 keyboard".to_string(), Arc::new(I8042Keyboard));
+    aster_input::register_device(
+        "AT Translated Set 2 keyboard".to_string(),
+        Arc::new(I8042Keyboard),
+    );
 }
 struct I8042Keyboard;
 
@@ -28,9 +27,9 @@ impl InputDevice for I8042Keyboard {
     fn metadata(&self) -> InputDeviceMeta {
         let id = InputID {
             bustype: 0x11,
-            vendor_id: 0x1,   
-            product_id: 0x1,  
-            version: 43841, 
+            vendor_id: 0x1,
+            product_id: 0x1,
+            version: 43841,
         };
         InputDeviceMeta {
             name: "AT Translated Set 2 keyboard".to_string(),
@@ -48,13 +47,23 @@ impl InputDevice for I8042Keyboard {
     // Not support EVIOCGREP
     // This is different with strace in Linux, because we claim we do not support EV_REP
     fn get_ev_bit(&self) -> Vec<EventType> {
-        vec![EventType::EvSyn, EventType::EvKey, EventType::EvMsc, EventType::EvLed]
+        vec![
+            EventType::EvSyn,
+            EventType::EvKey,
+            EventType::EvMsc,
+            EventType::EvLed,
+        ]
     }
 
-    fn get_key_bit(&self) -> Vec<KeyEvent> { 
+    fn get_key_bit(&self) -> Vec<KeyEvent> {
         // Because we need to provide hundreds of keys, it is no need to list all keys needed here for POC.
-        // So we just return a meaningless vec, and return the exact bitmap in handle_get_key_bit func. 
-        vec![KeyEvent::KeyEsc, KeyEvent::Key1, KeyEvent::Key2, KeyEvent::Key3]
+        // So we just return a meaningless vec, and return the exact bitmap in handle_get_key_bit func.
+        vec![
+            KeyEvent::KeyEsc,
+            KeyEvent::Key1,
+            KeyEvent::Key2,
+            KeyEvent::Key3,
+        ]
     }
 
     fn get_led_bit(&self) -> Vec<LedEvent> {
@@ -71,7 +80,9 @@ impl InputDevice for I8042Keyboard {
 }
 
 pub fn handle_keyboard_input(_trap_frame: &TrapFrame) {
-    log::error!("-----This is handle_keyboard_input in kernel/comps/i8042_controller/src/i8042_keyboard.rs");
+    log::error!(
+        "-----This is handle_keyboard_input in kernel/comps/i8042_controller/src/i8042_keyboard.rs"
+    );
     let (key, status) = parse_inputkey();
 
     // Get the current time in microseconds
@@ -79,19 +90,25 @@ pub fn handle_keyboard_input(_trap_frame: &TrapFrame) {
     let time_in_microseconds = now.secs() * 1_000_000 + (now.nanos() / 1_000) as u64;
 
     // Dispatch the input event
-    input_event(InputEvent {
-        time: time_in_microseconds, // Assign the current timestamp
-        type_: EventType::EvKey as u16,    // EV_KEY (example type for key events)
-        code: key as u16,           // Convert InputKey to a u16 representation
-        value: status as i32,                   // Example value (1 for key press, 0 for release)
-    }, "AT Translated Set 2 keyboard");
+    input_event(
+        InputEvent {
+            time: time_in_microseconds,     // Assign the current timestamp
+            type_: EventType::EvKey as u16, // EV_KEY (example type for key events)
+            code: key as u16,               // Convert InputKey to a u16 representation
+            value: status as i32,           // Example value (1 for key press, 0 for release)
+        },
+        "AT Translated Set 2 keyboard",
+    );
 
-    input_event(InputEvent {
-        time: 0,
-        type_: EventType::EvSyn as u16,
-        code: 0,
-        value: 0,
-    }, "AT Translated Set 2 keyboard");
+    input_event(
+        InputEvent {
+            time: 0,
+            type_: EventType::EvSyn as u16,
+            code: 0,
+            value: 0,
+        },
+        "AT Translated Set 2 keyboard",
+    );
 
     // Fixme: the callbacks are going to be replaced.
     if status == KeyStatus::Pressed {

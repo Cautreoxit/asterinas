@@ -24,12 +24,12 @@ use crate::{
         io::Fallible,
         kspace::KERNEL_PAGE_TABLE,
         page_table::{self, PageTable, PageTableFrag, PageTableItem},
-        tlb::{TlbFlushOp, TlbFlusher}, Frame, PageProperty, UFrame, VmReader, VmWriter,
-        MAX_USERSPACE_VADDR, PAGE_SIZE,
+        tlb::{TlbFlushOp, TlbFlusher},
+        Frame, PageProperty, UFrame, VmReader, VmWriter, MAX_USERSPACE_VADDR, PAGE_SIZE,
     },
     prelude::*,
-    task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
     sync::SpinLock,
+    task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
     Error,
 };
 /// A virtual address space for user-mode tasks, enabling safe manipulation of user-space memory.
@@ -415,7 +415,7 @@ impl<'vmspace, G: AsAtomicModeGuard> CursorMut<'_, '_, 'vmspace, G> {
             current_paddr += PAGE_SIZE;
         }
 
-        // If the iomems does not hold current iomem, push it to maintain 
+        // If the iomems does not hold current iomem, push it to maintain
         // correct reference count
         let mut iomems = self.vmspace.iomems.lock();
         if iomems

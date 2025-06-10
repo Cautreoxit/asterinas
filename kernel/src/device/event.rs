@@ -1,21 +1,23 @@
 #![expect(unused_variables)]
 
+use alloc::collections::VecDeque;
+
+use aster_input::{
+    event_type_codes::{EventType, *},
+    register_handler, InputDevice, InputEvent, InputHandler,
+};
+use spin::{Mutex, Once};
+
 use super::*;
 use crate::{
+    current_userspace,
     events::IoEvents,
-    fs::inode_handle::FileIo,
+    fs::{inode_handle::FileIo, utils::IoctlCmd},
     prelude::*,
     process::signal::{PollHandle, Pollable, Pollee},
     syscall::ClockId,
     util::MultiWrite,
 };
-use aster_input::{register_handler, InputHandler, InputEvent, event_type_codes::EventType};
-use alloc::collections::VecDeque;
-use spin::{Mutex, Once};
-use aster_input::InputDevice;
-use crate::fs::utils::IoctlCmd;
-use crate::current_userspace;
-use aster_input::event_type_codes::*;
 
 const BITS_PER_WORD: usize = usize::BITS as usize;
 const EV_BITMAP_LEN: usize = (EV_COUNT + BITS_PER_WORD - 1) / BITS_PER_WORD;
@@ -63,15 +65,14 @@ const EVIOCSCLOCKID_NR: u8 = (IoctlCmd::EVIOCSCLOCKID as u32 & 0xFF) as u8;
 // const EVIOCGVERSION_NR: u8 = 0x01;
 // const EVIOCSCLOCKID_NR: u8 = 0xa0;
 
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct InputEventLinux {
-    pub sec: u64,    // Seconds (time.tv_sec or __sec)
-    pub usec: u64,   // Microseconds (time.tv_usec or __usec)
-    pub type_: u16,  // Event type
-    pub code: u16,   // Event code
-    pub value: i32,  // Event value
+    pub sec: u64,   // Seconds (time.tv_sec or __sec)
+    pub usec: u64,  // Microseconds (time.tv_usec or __usec)
+    pub type_: u16, // Event type
+    pub code: u16,  // Event code
+    pub value: i32, // Event value
 }
 
 impl InputEventLinux {
@@ -115,7 +116,10 @@ impl EventDevice {
         });
 
         // Update the handler's weak reference to point to the new EventDevice
-        handler.event_devices.lock().push(Arc::downgrade(&event_device));
+        handler
+            .event_devices
+            .lock()
+            .push(Arc::downgrade(&event_device));
 
         // Register the handler
         register_handler(handler.clone());
@@ -189,7 +193,8 @@ impl FileIo for EventDevice {
     fn read(&self, writer: &mut VmWriter) -> Result<usize> {
         // println!("EventDevice::read called");
         let mut queue = self.event_queue.lock(); // Lock the event queue for thread-safe access
-        if let Some(event) = queue.pop_front() { // Retrieve the oldest event from the queue
+        if let Some(event) = queue.pop_front() {
+            // Retrieve the oldest event from the queue
             let event_bytes = event.to_bytes(); // Serialize the event into bytes
             let mut reader = VmReader::from(&event_bytes[..]); // Create a reader for the serialized bytes
             writer.write(&mut reader)?; // Write the serialized event to the writer
@@ -216,15 +221,15 @@ impl FileIo for EventDevice {
 
         let cmd_val = cmd as u32;
         // let cmd_val = cmd.as_u32();
-        let cmd_nr  = ((cmd_val >> NR_SHIFT) & 0xFF) as u8;
+        let cmd_nr = ((cmd_val >> NR_SHIFT) & 0xFF) as u8;
         let cmd_type = ((cmd_val >> TYPE_SHIFT) & 0xFF) as u8;
-        let cmd_size  = ((cmd_val >> SIZE_SHIFT) & 0x3FFF) as u16;
+        let cmd_size = ((cmd_val >> SIZE_SHIFT) & 0x3FFF) as u16;
 
         match cmd_nr {
             EVIOCGBIT_NR..=EVIOCGBIT_NR_MAX => {
                 // Example: rc = ioctl(fd, EVIOCGBIT(EV_REL, sizeof(dev->rel_bits)), dev->rel_bits);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `dev->xxx_bits` with kernel's `dev->xxx_bits`
                 // Our implementation: Fill device's corresponding bitmap. To do this, we need to add these bitmaps
                 // for each device when initialzied in kernel, indicating its supportive events. (true)
@@ -237,7 +242,7 @@ impl FileIo for EventDevice {
             EVIOCGID_NR => {
                 // Example: rc = ioctl(fd, EVIOCGID, &dev->ids);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `&dev->ids` with device's input_id struct, including bustype, vendor, product, version
                 // Our implementation: Fill device's input_id struct (true)
 
@@ -248,9 +253,9 @@ impl FileIo for EventDevice {
             EVIOCGKEY_NR => {
                 // Example: rc = ioctl(fd, EVIOCGKEY(sizeof(dev->key_values)), dev->key_values);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `dev->key_values` with kernel's dev->key, which indicates key's current state
-                // Our implementation: Call event_handle_get_val() with EV_KEY, copying kernel's dev->key to 
+                // Our implementation: Call event_handle_get_val() with EV_KEY, copying kernel's dev->key to
                 // library's dev->key (true)
 
                 // event_handle_get_val()
@@ -262,9 +267,9 @@ impl FileIo for EventDevice {
             EVIOCGLED_NR => {
                 // Example: rc = ioctl(fd, EVIOCGLED(sizeof(dev->led_values)), dev->led_values);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `dev->led_values` with kernel's dev->led, which indicates led's current state
-                // Our implementation: Call event_handle_get_val() with EV_LED, copying kernel's dev->led to 
+                // Our implementation: Call event_handle_get_val() with EV_LED, copying kernel's dev->led to
                 // library's dev->led (true)
 
                 // event_handle_get_val()
@@ -275,7 +280,7 @@ impl FileIo for EventDevice {
             EVIOCGNAME_NR => {
                 // Example: rc = ioctl(fd, EVIOCGNAME(sizeof(buf) - 1), buf);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `buf` with device's name, like "VirtualPS/2 VMware VMMouse\0"
                 // Our implementation: Fill device's name (true)
                 let mut buf = [0u8; 32];
@@ -288,7 +293,7 @@ impl FileIo for EventDevice {
             EVIOCGPHYS_NR => {
                 // Example: rc = ioctl(fd, EVIOCGPHYS(sizeof(buf) - 1), buf);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `buf` with device's physical location, like "isa0060/serio1/input1\0"
                 // Our implementation: Fill any string (false)
 
@@ -301,10 +306,10 @@ impl FileIo for EventDevice {
             EVIOCGUNIQ_NR => {
                 // Example: rc = ioctl(fd, EVIOCGUNIQ(sizeof(buf) - 1), buf);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `buf` with device's unique number
                 // Our implementation: Just Fill ENOENT (false)
-                
+
                 let mut buf = [0u8; 32];
                 let uniq = self.input_device().metadata().uniq;
                 buf[..uniq.len()].copy_from_slice(uniq.as_bytes());
@@ -314,7 +319,7 @@ impl FileIo for EventDevice {
             EVIOCGPROP_NR => {
                 // Example: rc = ioctl(fd, EVIOCGPROP(sizeof(dev->props)), dev->props);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `dev->props` with device's properties and quirks
                 // Our implementation: Fill nothing, because our APIs do not use dev->props (false)
 
@@ -325,7 +330,7 @@ impl FileIo for EventDevice {
                     let bit_index = prop as usize;
                     let word_index = bit_index / BITS_PER_WORD;
                     let bit_offset = bit_index % BITS_PER_WORD;
-                
+
                     bitmap[word_index] |= 1 << bit_offset;
                 }
                 current_userspace!().write_val(arg, &bitmap)?;
@@ -335,7 +340,7 @@ impl FileIo for EventDevice {
             EVIOCGREP_NR => {
                 // Example: rc = ioctl(fd, EVIOCGREP, dev->rep_values);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `dev->rep_values` with kernel's dev->rep[0] and dev->rep[1]
                 // Our implementation: Just claim our device does not support this function (false)
 
@@ -345,9 +350,9 @@ impl FileIo for EventDevice {
             EVIOCGSW_NR => {
                 // Example: rc = ioctl(fd, EVIOCGSW(sizeof(dev->sw_values)), dev->sw_values);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `dev->sw_values` with kernel's dev->sw, which indicates sw's current state
-                // Our implementation: Call event_handle_get_val() with EV_SW, copying kernel's dev->sw to 
+                // Our implementation: Call event_handle_get_val() with EV_SW, copying kernel's dev->sw to
                 // library's dev->sw (true)
 
                 let buf: [usize; SW_BITMAP_LEN] = [0; SW_BITMAP_LEN];
@@ -357,7 +362,7 @@ impl FileIo for EventDevice {
             EVIOCGVERSION_NR => {
                 // Example: rc = ioctl(fd, EVIOCGVERSION, &dev->driver_version);
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Fill `&dev->driver_version` with device's version
                 // Our implementation: Fill device's version (true)
                 let version = self.input_device().metadata().version;
@@ -367,10 +372,10 @@ impl FileIo for EventDevice {
             EVIOCSCLOCKID_NR => {
                 // Example: rc = ioctl(dev->fd, EVIOCSCLOCKID, &clockid)
                 // Return value: error number
-                // Parameter: 
+                // Parameter:
                 // Function: Set the clock of the events
                 // Our implementation: Set the clock of the events. In fact, our application always set CLOCK_MONOTOLIC (true)
-                
+
                 // let p :usize = current_userspace!().read_val(arg).unwrap();
                 // let clock_id = p as ClockId;
                 let clock_id = ClockId::CLOCK_MONOTONIC;
@@ -408,11 +413,19 @@ pub struct EventDeviceHandler {
 impl InputHandler for EventDeviceHandler {
     /// Specifies the event types this handler can process.
     fn supported_event_types(&self) -> Vec<u16> {
-        vec![EventType::EvSyn as u16, EventType::EvKey as u16, EventType::EvRel as u16] // Supports keyboard and mouse events
+        vec![
+            EventType::EvSyn as u16,
+            EventType::EvKey as u16,
+            EventType::EvRel as u16,
+        ] // Supports keyboard and mouse events
     }
 
     /// Handles the input event by pushing it to the event queue.
-    fn handle_event(&self, event: InputEvent, str: &str) -> core::result::Result<(), core::convert::Infallible> {
+    fn handle_event(
+        &self,
+        event: InputEvent,
+        str: &str,
+    ) -> core::result::Result<(), core::convert::Infallible> {
         let devices = self.event_devices.lock();
         for weak_dev in devices.iter() {
             if let Some(event_device) = weak_dev.upgrade() {
@@ -443,7 +456,6 @@ impl InputHandler for EventDeviceHandler {
     }
 }
 
-
 // Implement the Pollable trait for Arc<EventDevice>
 impl Pollable for Arc<EventDevice> {
     fn poll(&self, mask: IoEvents, poller: Option<&mut PollHandle>) -> IoEvents {
@@ -457,15 +469,15 @@ impl FileIo for Arc<EventDevice> {
         println!("Arc<EventDevice>::read called");
         // Lock the event queue for thread-safe access
         let mut queue = self.event_queue.lock();
-        
+
         // Retrieve the oldest event from the queue
         if let Some(event) = queue.pop_front() {
             // Serialize the event into bytes
             let event_bytes = event.to_bytes(); // Use the `to_bytes` method of `InputEventLinux`
-            
+
             // Create a reader for the serialized bytes
             let mut reader = VmReader::from(&event_bytes[..]);
-            
+
             // Write the serialized event to the writer
             writer.write(&mut reader)?;
 
@@ -486,7 +498,12 @@ impl FileIo for Arc<EventDevice> {
     }
 }
 
-fn handle_eviocgbit(dev: Arc<dyn InputDevice>, type_: EventType, _size: u16, arg: usize) -> Result<i32> {
+fn handle_eviocgbit(
+    dev: Arc<dyn InputDevice>,
+    type_: EventType,
+    _size: u16,
+    arg: usize,
+) -> Result<i32> {
     match type_ {
         EventType::EvSyn => {
             let _ = handle_get_ev_bit(dev, arg);

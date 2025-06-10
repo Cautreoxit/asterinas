@@ -2,28 +2,21 @@
 
 //! The i8042 mouse driver.
 
-use ostd::{
-    trap::TrapFrame,
-    sync::Mutex,
+use alloc::{sync::Arc, vec, vec::Vec};
+
+use aster_input::{
+    event_type_codes::*, input_event, InputDevice, InputDeviceMeta, InputEvent, InputID,
 };
-use alloc::sync::Arc;
-
-use aster_input::{InputDevice, InputDeviceMeta, InputEvent, input_event, InputID};
-
 use aster_time::tsc::read_instant;
-use alloc::vec;
-use alloc::vec::Vec;
-use crate::alloc::string::ToString;
-use super::MOUSE_CALLBACKS;
-use aster_input::event_type_codes::*;
+use ostd::{sync::Mutex, trap::TrapFrame};
 
-use crate::DATA_PORT;
+use super::MOUSE_CALLBACKS;
+use crate::{alloc::string::ToString, DATA_PORT};
 
 pub fn init() {
     log::error!("This is init in kernel/comps/mouse/src/i8042_mouse.rs");
     aster_input::register_device("PS/2 Generic Mouse".to_string(), Arc::new(I8042Mouse));
 }
-
 
 struct I8042Mouse;
 
@@ -32,8 +25,8 @@ impl InputDevice for I8042Mouse {
         let id = InputID {
             bustype: 0x11,
             vendor_id: 0x2,
-            product_id: 0x1,  
-            version: 0,       
+            product_id: 0x1,
+            version: 0,
         };
         InputDeviceMeta {
             name: "PS/2 Generic Mouse".to_string(),
@@ -74,7 +67,10 @@ pub struct MouseState {
     index: usize,
 }
 
-static MOUSE_STATE: Mutex<MouseState> = Mutex::new(MouseState { buffer: [0; 3], index: 0 });
+static MOUSE_STATE: Mutex<MouseState> = Mutex::new(MouseState {
+    buffer: [0; 3],
+    index: 0,
+});
 
 pub fn handle_mouse_input(_trap_frame: &TrapFrame) {
     // log::error!("-----This is handle_mouse_input in kernel/comps/i8042_controller/src/i8042_mouse.rs");
@@ -116,20 +112,23 @@ impl MousePacket {
 }
 
 fn parse_input_packet(packet: [u8; 3]) -> MousePacket {
-    log::error!("This is parse_input_packet in kernel/comps/mouse/src/i8042_mouse.rs packet: {:?}", packet);
+    log::error!(
+        "This is parse_input_packet in kernel/comps/mouse/src/i8042_mouse.rs packet: {:?}",
+        packet
+    );
 
     let byte0 = packet[0];
     let byte1 = packet[1];
     let byte2 = packet[2];
 
     MousePacket {
-        left_button:   byte0 & 0x01 != 0,
-        right_button:  byte0 & 0x02 != 0,
+        left_button: byte0 & 0x01 != 0,
+        right_button: byte0 & 0x02 != 0,
         middle_button: byte0 & 0x04 != 0,
-        x_overflow:    byte0 & 0x40 != 0,
-        y_overflow:    byte0 & 0x80 != 0,
-        x_movement:    byte1 as i8,
-        y_movement:   -(byte2 as i8),
+        x_overflow: byte0 & 0x40 != 0,
+        y_overflow: byte0 & 0x80 != 0,
+        x_movement: byte1 as i8,
+        y_movement: -(byte2 as i8),
     }
 }
 
@@ -191,8 +190,8 @@ fn parse_input_events(packet: MousePacket) -> Vec<InputEvent> {
 }
 
 fn handle_mouse_packet(packet: MousePacket) {
-    let mut events = parse_input_events(packet);  
-    
+    let mut events = parse_input_events(packet);
+
     // Add a SYNC event to signal the end of the event group
     events.push(InputEvent {
         time: 0,

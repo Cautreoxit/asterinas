@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
+mod event;
 mod fb;
 mod null;
 mod pty;
@@ -8,23 +9,23 @@ mod shm;
 pub mod tty;
 mod urandom;
 mod zero;
-mod event;
 
 #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
 mod tdxguest;
 
+use alloc::format;
+
+pub use event::EventDevice;
 pub use fb::Fb;
 pub use pty::{new_pty_pair, PtyMaster, PtySlave};
 pub use random::Random;
 pub use urandom::Urandom;
-pub use event::EventDevice;
 
 use self::tty::get_n_tty;
 use crate::{
     fs::device::{add_node, Device, DeviceId, DeviceType},
     prelude::*,
 };
-use alloc::format;
 
 /// Init the device node in fs, must be called after mounting rootfs.
 pub fn init() -> Result<()> {
@@ -55,7 +56,10 @@ pub fn init() -> Result<()> {
         let event_device = Arc::new(event::EventDevice::new(index, input_device.clone()));
         let path = format!("input/event{}", index);
         add_node(event_device, &path)?;
-        println!("Added EventDevice for InputDevice '{}' at '{}'", device_name, path);
+        println!(
+            "Added EventDevice for InputDevice '{}' at '{}'",
+            device_name, path
+        );
     }
 
     Ok(())

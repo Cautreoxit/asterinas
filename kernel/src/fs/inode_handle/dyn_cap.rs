@@ -4,7 +4,7 @@ use aster_rights::TRights;
 use inherit_methods_macro::inherit_methods;
 
 use super::*;
-use crate::{prelude::*, process::signal::Pollable, vm::perms::VmPerms, fs::utils::Inode};
+use crate::{fs::utils::Inode, prelude::*, process::signal::Pollable, vm::perms::VmPerms};
 
 impl InodeHandle<Rights> {
     pub fn new(dentry: Dentry, access_mode: AccessMode, status_flags: StatusFlags) -> Result<Self> {

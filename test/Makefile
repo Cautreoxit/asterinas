@@ -165,7 +165,6 @@ $(INITRAMFS)/lib/x86_64-linux-gnu: | $(VDSO_LIB)
 	@cp -L /lib/x86_64-linux-gnu/libXcursor.so.1 $@
 	@cp -L /lib/x86_64-linux-gnu/libXcomposite.so.1 $@
 	@cp -L /lib/x86_64-linux-gnu/libXdamage.so.1 $@
-	@#required for GTK3
 	@cp -L /lib/x86_64-linux-gnu/libgdk-3.so.0 $@
 	@cp -L /lib/x86_64-linux-gnu/libgtk-3.so.0 $@
 	@cp -L /lib/x86_64-linux-gnu/libgdk_pixbuf-2.0.so.0 $@
@@ -220,7 +219,10 @@ $(INITRAMFS)/etc:
 	@cp $(CUR_DIR)/etc/* $@
 	@cp -L /etc/machine-id $@/machine-id
 
-$(INITRAMFS)/var/run: | $(INITRAMFS)/run
+$(INITRAMFS)/var: | $(INITRAMFS)
+	@mkdir -p $@
+
+$(INITRAMFS)/var/run: | $(INITRAMFS)/run $(INITRAMFS)/var
 	@rm -rf $@
 	@ln -sf ../run $@
 
@@ -246,9 +248,9 @@ $(INITRAMFS)/sbin:
 $(INITRAMFS)/usr/bin: | $(INITRAMFS)/bin
 	@mkdir -p $@
 	@cp /usr/bin/busybox $@
-	@cp /usr/bin/Xvfb $@
-	@cp /usr/bin/Xorg $@
-	@cp /usr/bin/gtf $@
+	@cp /usr-xorg/bin/Xvfb $@
+	@cp /usr-xorg/bin/Xorg $@
+	@cp /usr-xorg/bin/gtf $@
 	@cp /usr/bin/setxkbmap $@
 	@cp /usr/bin/xkbbell $@
 	@cp /usr/bin/xkbcomp $@
@@ -273,7 +275,6 @@ $(INITRAMFS)/usr/bin: | $(INITRAMFS)/bin
 	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/.libs/dbus-monitor $@/dbus-monitor
 	@cp /root/ubuntu/dbus/dbus-1.12.20/tools/dbus-cleanup-sockets $@/dbus-cleanup-sockets
 	@cp /usr/bin/gtk3-demo $@
-	@cp /root/ubuntu/tools/hello-gtk/hello-gtk $@
 
 $(INITRAMFS)/usr/local:
 	@mkdir -p $@
@@ -311,6 +312,7 @@ $(INITRAMFS)/etc/dbus-1:
 $(INITRAMFS)/usr/lib:
 	@mkdir -p $@
 	@cp -r /usr/lib/xorg $@
+	@cp -r /usr-xorg/lib/x86_64-linux-gnu/xorg/modules/ $@/xorg/modules/
 
 $(INITRAMFS)/usr/lib/x86_64-linux-gnu:
 	@mkdir -p $@
@@ -335,6 +337,8 @@ $(INITRAMFS)/benchmark/bin:
 	@cp /usr/local/benchmark/iperf/bin/iperf3 $@
 	@cp /usr/local/benchmark/membench/membench $@
 	@cp /usr/local/benchmark/iozone $@
+	@cp /usr/local/benchmark/my_gtk_test $@
+	@cp /usr/local/benchmark/gtk_test $@
 	@cp -r /usr/local/benchmark/unixbench $@
 	@cp -r /usr/local/benchmark/lmbench $@
 	@cp /usr/local/benchmark/fio/bin/fio $@

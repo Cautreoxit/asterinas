@@ -154,7 +154,6 @@ pub fn read_clock(clockid: clockid_t, ctx: &Context) -> Result<Duration> {
     }
 }
 
-
 pub fn read_clock_input(clockid: clockid_t) -> Result<Duration> {
     if clockid >= 0 {
         let clock_id = ClockId::try_from(clockid)?;

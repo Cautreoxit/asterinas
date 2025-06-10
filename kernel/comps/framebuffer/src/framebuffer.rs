@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use core::{default, str};
-
 use alloc::sync::Arc;
+use core::{default, str};
 
 use ostd::{boot::boot_info, io::IoMem, mm::VmIo, Pod, Result};
 use spin::Once;
@@ -10,7 +9,7 @@ use spin::Once;
 use crate::{Pixel, PixelFormat, RenderedPixel};
 
 /// The interception of offset for color fileds.
-/// 
+///
 /// Reference: https://github.com/torvalds/linux/blob/ace4ebf9b70a7daea12102c09ba5ef6bb73223aa/include/uapi/linux/fb.h
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod)]
@@ -33,7 +32,7 @@ impl Default for FrameBufferBitfield {
     }
 }
 
-impl FrameBufferBitfield{
+impl FrameBufferBitfield {
     /// Creates a new `FrameBufferBitfield` instance.
     pub fn new(offset: u32, length: u32, msb_right: u32) -> Self {
         Self {

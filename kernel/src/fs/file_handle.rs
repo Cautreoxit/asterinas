@@ -5,8 +5,8 @@
 //! Opened File Handle
 
 use ostd::io::IoMem;
-use super::{inode_handle::InodeHandle, path::Dentry};
 
+use super::{inode_handle::InodeHandle, path::Dentry};
 use crate::{
     fs::utils::{AccessMode, FallocMode, InodeMode, IoctlCmd, Metadata, SeekFrom, StatusFlags},
     net::socket::Socket,
