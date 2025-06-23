@@ -161,7 +161,9 @@ fn parse_input_packet(packet: [u8; 3]) -> MousePacket {
     }
 }
 
-fn parse_input_events(packet: MousePacket) -> Vec<InputEvent> {
+static LAST_MOUSE_BUTTONS: Mutex<(bool, bool, bool)> = Mutex::new((false, false, false));
+
+fn parse_input_events(packet: MousePacket, prev_buttons: (bool, bool, bool)) -> (Vec<InputEvent>, (bool, bool, bool)) {
     let mut events = Vec::new();
 
     // Get the current time in microseconds
@@ -189,37 +191,43 @@ fn parse_input_events(packet: MousePacket) -> Vec<InputEvent> {
     }
 
     // Add button press/release events
-    if packet.left_button {
+    let (prev_left, prev_right, prev_middle) = prev_buttons;
+    let current = (packet.left_button, packet.right_button, packet.middle_button);
+
+    if packet.left_button != prev_left {
         events.push(InputEvent {
             time: time_in_microseconds,
             type_: EventType::EvKey as u16,
             code: MouseKeyEvent::MouseLeft as u16,
-            value: 1,
+            value: if packet.left_button { 1 } else { 0 },
         });
     }
-    if packet.right_button {
+
+    if packet.right_button != prev_right {
         events.push(InputEvent {
             time: time_in_microseconds,
             type_: EventType::EvKey as u16,
             code: MouseKeyEvent::MouseRight as u16,
-            value: 1,
+            value: if packet.right_button { 1 } else { 0 },
         });
     }
-    if packet.middle_button {
+
+    if packet.middle_button != prev_middle {
         events.push(InputEvent {
             time: time_in_microseconds,
             type_: EventType::EvKey as u16,
             code: MouseKeyEvent::MouseMiddle as u16,
-            value: 1,
+            value: if packet.middle_button { 1 } else { 0 },
         });
     }
 
-    // Return the list of events
-    events
+    (events, current)
 }
 
 fn handle_mouse_packet(packet: MousePacket) {
-    let mut events = parse_input_events(packet);  
+    let mut last_buttons = LAST_MOUSE_BUTTONS.lock();
+    let (mut events, new_buttons) = parse_input_events(packet, *last_buttons); 
+    *last_buttons = new_buttons; 
     
     // Add a SYNC event to signal the end of the event group
     events.push(InputEvent {
