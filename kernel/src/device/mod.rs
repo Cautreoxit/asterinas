@@ -65,7 +65,7 @@ pub fn init() -> Result<()> {
 
     // Dynamically create EventDevices for each InputDevice
     for (index, (device_name, input_device)) in aster_input::all_devices().iter().enumerate() {
-        let event_device = Arc::new(event::EventDevice::new(index, input_device.clone()));
+        let event_device = event::EventDevice::new(index, input_device.clone());
         let path = format!("input/event{}", index);
         add_node(event_device, &path)?;
         println!("Added EventDevice for InputDevice '{}' at '{}'", device_name, path);

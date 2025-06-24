@@ -12,6 +12,7 @@ use crate::{
 use aster_input::{register_handler, InputHandler, InputEvent, event_type_codes::EventType};
 use alloc::collections::VecDeque;
 use spin::{Mutex, Once};
+use ostd::sync::SpinLock;
 use aster_input::InputDevice;
 use crate::fs::utils::IoctlCmd;
 use crate::current_userspace;
@@ -89,7 +90,7 @@ impl InputEventLinux {
 pub struct EventDevice {
     id: usize,
     clock_id: ClockId,
-    event_queue: Arc<Mutex<VecDeque<InputEventLinux>>>,
+    event_queue: Arc<SpinLock<VecDeque<InputEventLinux>>>,
     input_device: Arc<dyn InputDevice>,
     pollee: Pollee,
 }
@@ -102,7 +103,7 @@ impl EventDevice {
         let event_device = Arc::new(Self {
             id,
             clock_id,
-            event_queue: Arc::new(Mutex::new(VecDeque::new())),
+            event_queue: Arc::new(SpinLock::new(VecDeque::new())),
             input_device: input_device.clone(),
             pollee: Pollee::new(),
         });
@@ -127,12 +128,18 @@ impl EventDevice {
     }
 
     pub fn push_event(&self, event: InputEventLinux) {
-        let mut queue = self.event_queue.lock();
-        if queue.len() >= 128 {
-            queue.pop_front();
+        let mut notify = false;
+        {
+            let mut queue = self.event_queue.disable_irq().lock();
+            if queue.len() >= 128 {
+                queue.pop_front();
+            }
+            queue.push_back(event);
+            if event.type_ == EventType::EvSyn as u16 {
+                notify = true;
+            }
         }
-        queue.push_back(event);
-        if event.type_ == EventType::EvSyn as u16 {
+        if notify {
             self.pollee.notify(IoEvents::IN);
         }
     }
@@ -175,7 +182,7 @@ impl Pollable for EventDevice {
         // Use the Pollee mechanism to manage readiness and notifications
         self.pollee.poll_with(mask, poller, || {
             // Check if there are events in the queue
-            let queue = self.event_queue.lock();
+            let queue = self.event_queue.disable_irq().lock();
             if !queue.is_empty() {
                 IoEvents::IN // Data is available to read
             } else {
@@ -188,7 +195,7 @@ impl Pollable for EventDevice {
 impl FileIo for EventDevice {
     fn read(&self, writer: &mut VmWriter) -> Result<usize> {
         // println!("EventDevice::read called");
-        let mut queue = self.event_queue.lock(); // Lock the event queue for thread-safe access
+        let mut queue = self.event_queue.disable_irq().lock(); // Lock the event queue for thread-safe access
         if let Some(event) = queue.pop_front() { // Retrieve the oldest event from the queue
             let event_bytes = event.to_bytes(); // Serialize the event into bytes
             let mut reader = VmReader::from(&event_bytes[..]); // Create a reader for the serialized bytes
@@ -444,48 +451,6 @@ impl InputHandler for EventDeviceHandler {
 }
 
 
-// Implement the Pollable trait for Arc<EventDevice>
-impl Pollable for Arc<EventDevice> {
-    fn poll(&self, mask: IoEvents, poller: Option<&mut PollHandle>) -> IoEvents {
-        self.as_ref().poll(mask, poller)
-    }
-}
-
-// Implement the FileIo trait for Arc<EventDevice>
-impl FileIo for Arc<EventDevice> {
-    fn read(&self, writer: &mut VmWriter) -> Result<usize> {
-        println!("Arc<EventDevice>::read called");
-        // Lock the event queue for thread-safe access
-        let mut queue = self.event_queue.lock();
-        
-        // Retrieve the oldest event from the queue
-        if let Some(event) = queue.pop_front() {
-            // Serialize the event into bytes
-            let event_bytes = event.to_bytes(); // Use the `to_bytes` method of `InputEventLinux`
-            
-            // Create a reader for the serialized bytes
-            let mut reader = VmReader::from(&event_bytes[..]);
-            
-            // Write the serialized event to the writer
-            writer.write(&mut reader)?;
-
-            if queue.is_empty() {
-                self.pollee.invalidate();
-            }
-
-            // Return the size of the serialized event
-            Ok(event_bytes.len())
-        } else {
-            // Return 0 if the queue is empty
-            Ok(0)
-        }
-    }
-
-    fn write(&self, reader: &mut VmReader) -> Result<usize> {
-        self.as_ref().write(reader)
-    }
-}
-
 fn handle_eviocgbit(dev: Arc<dyn InputDevice>, type_: EventType, _size: u16, arg: usize) -> Result<i32> {
     match type_ {
         EventType::EvSyn => {
@@ -638,19 +603,4 @@ fn handle_get_sw_bit(dev: Arc<dyn InputDevice>, arg: usize) -> Result<i32> {
     current_userspace!().write_val(arg, &bitmap)?;
 
     Ok(0)
-}
-
-// Implement the Device trait for Arc<EventDevice>
-impl Device for Arc<EventDevice> {
-    fn type_(&self) -> DeviceType {
-        self.as_ref().type_()
-    }
-
-    fn id(&self) -> DeviceId {
-        self.as_ref().id()
-    }
-
-    fn open(&self) -> Result<Option<Arc<dyn FileIo>>> {
-        self.as_ref().open()
-    }
 }
