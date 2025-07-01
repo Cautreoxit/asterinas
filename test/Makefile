@@ -139,7 +139,8 @@ $(INITRAMFS)/lib/x86_64-linux-gnu: | $(VDSO_LIB)
 	@cp -L /lib/x86_64-linux-gnu/libGLdispatch.so.0 $@
 	@cp -L /lib/x86_64-linux-gnu/libGLX.so.0 $@
 	@cp -L /lib/x86_64-linux-gnu/libX11.so.6 $@
-	@cp -L /lib/x86_64-linux-gnu/libxcb.so.1 $@
+	# @cp -L /lib/x86_64-linux-gnu/libxcb.so.1 $@
+	@cp -L /user-de/gtk/installed_dir/libxcb.so.1 $@
 	@cp -L /lib/x86_64-linux-gnu/libLLVM-15.so.1 $@
 	@cp -L /lib/x86_64-linux-gnu/libexpat.so.1 $@
 	@cp -L /lib/x86_64-linux-gnu/libsensors.so.5 $@

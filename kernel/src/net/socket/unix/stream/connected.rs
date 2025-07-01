@@ -360,4 +360,4 @@ struct RangedAuxiliaryData {
     end: Wrapping<usize>,   // exclusive
 }
 
-pub(in crate::net) const UNIX_STREAM_DEFAULT_BUF_SIZE: usize = 65536;
+pub(in crate::net) const UNIX_STREAM_DEFAULT_BUF_SIZE: usize = 4194304;
