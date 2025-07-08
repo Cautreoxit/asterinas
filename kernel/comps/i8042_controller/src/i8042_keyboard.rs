@@ -514,7 +514,7 @@ fn parse_inputkey() -> (InputKey, ScanCode, KeyStatus) {
     let caps_lock = CAPS_LOCK.load(Ordering::Relaxed);
     if ctrl_key {
         (code.ctrl_map(), code, key_status)
-    } else if shift_key || caps_lock {
+    } else if shift_key ^ caps_lock {
         (code.shift_map(), code, key_status)
     } else {
         (code.plain_map(), code, key_status)
