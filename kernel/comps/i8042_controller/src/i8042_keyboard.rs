@@ -85,26 +85,66 @@ pub fn handle_keyboard_input(_trap_frame: &TrapFrame) {
     let now = read_instant();
     let time_in_microseconds = now.secs() * 1_000_000 + (now.nanos() / 1_000) as u64;
 
-    // Dispatch the input event
-    input_event(InputEvent {
-        time: time_in_microseconds,             // Assign the current timestamp
-        type_: EventType::EvKey as u16,         // EV_KEY (example type for key events)
-        code: scan_code.0 as u16,               // Convert ScanCode to a u16 representation
-        value: status as i32,                   // Example value (1 for key press, 0 for release)
-    }, "AT Translated Set 2 keyboard");
+    // Get the scan code to send to user space for normal keys, use the scan code directly
+    // For extended keys, we need to map them to appropriate codes
+    let event_code = get_event_code(key, scan_code);
 
-    input_event(InputEvent {
-        time: 0,
-        type_: EventType::EvSyn as u16,
-        code: 0,
-        value: 0,
-    }, "AT Translated Set 2 keyboard");
+    // Only send events for keys that should generate events
+    if should_send_event(key, scan_code) {
+        input_event(InputEvent {
+            time: time_in_microseconds,
+            type_: EventType::EvKey as u16,
+            code: event_code,
+            value: status as i32,
+        }, "AT Translated Set 2 keyboard");
+
+        input_event(InputEvent {
+            time: 0,
+            type_: EventType::EvSyn as u16,
+            code: 0,
+            value: 0,
+        }, "AT Translated Set 2 keyboard");
+    }
 
     // Fixme: the callbacks are going to be replaced.
     if status == KeyStatus::Pressed {
         for callback in KEYBOARD_CALLBACKS.lock().iter() {
             callback(key);
         }
+    }
+}
+
+fn get_event_code(key: InputKey, scan_code: ScanCode) -> u16 {
+    match key {
+        // For extended keys, map to Linux keycodes
+        InputKey::UpArrow => KeyEvent::KeyUp as u16,
+        InputKey::DownArrow => KeyEvent::KeyDown as u16,
+        InputKey::LeftArrow => KeyEvent::KeyLeft as u16,
+        InputKey::RightArrow => KeyEvent::KeyRight as u16,
+        InputKey::Home => KeyEvent::KeyHome as u16,
+        InputKey::End => KeyEvent::KeyEnd as u16,
+        InputKey::PageUp => KeyEvent::KeyPageUp as u16,
+        InputKey::PageDown => KeyEvent::KeyPageDown as u16,
+        InputKey::Insert => KeyEvent::KeyInsert as u16,
+        InputKey::Delete => KeyEvent::KeyDelete as u16,
+        // For normal keys, use the scan code directly
+        _ => scan_code.0 as u16,
+    }
+}
+
+fn should_send_event(key: InputKey, scan_code: ScanCode) -> bool {
+    // Always send events for normal keys
+    if key != InputKey::Nul {
+        return true;
+    }
+    
+    // For InputKey::Nul, check if it's a modifier key that should send events
+    let raw_code = scan_code.0 & 0x7F;
+    match raw_code {
+        0x1D => true, // Ctrl
+        0x2A | 0x36 => true, // Shift
+        0x3A => true, // CapsLock
+        _ => false, // Other Nul keys (like extension marker) don't send events
     }
 }
 
@@ -146,6 +186,24 @@ impl ScanCode {
 
     fn is_extension(&self) -> bool {
         self.0 == 0xE0
+    }
+
+    fn extended_map(&self) -> InputKey {
+        match self.0 & 0x7F {
+            0x48 => InputKey::UpArrow,    // Extended Up Arrow
+            0x50 => InputKey::DownArrow,  // Extended Down Arrow
+            0x4B => InputKey::LeftArrow,  // Extended Left Arrow
+            0x4D => InputKey::RightArrow, // Extended Right Arrow
+            0x47 => InputKey::Home,       // Extended Home
+            0x4F => InputKey::End,        // Extended End
+            0x49 => InputKey::PageUp,     // Extended Page Up
+            0x51 => InputKey::PageDown,   // Extended Page Down
+            0x52 => InputKey::Insert,     // Extended Insert
+            0x53 => InputKey::Delete,     // Extended Delete
+            0x1D => InputKey::Nul,        // Right Ctrl (extended)
+            0x38 => InputKey::Nul,        // Right Alt (extended)
+            _ => InputKey::Nul,
+        }
     }
 
     fn plain_map(&self) -> InputKey {
@@ -221,19 +279,19 @@ impl ScanCode {
             0x44 => InputKey::F10,
             0x45 => InputKey::Nul,        // NumLock
             0x46 => InputKey::Nul,        // ScrollLock
-            0x47 => InputKey::Home,       // Keypad-7 or Home
-            0x48 => InputKey::UpArrow,    // Keypad-8 or Up
-            0x49 => InputKey::PageUp,     // Keypad-9 or PageUp
+            0x47 => InputKey::Seven,      // Keypad-7 (not Home for numpad)
+            0x48 => InputKey::Eight,      // Keypad-8 (not Up for numpad)
+            0x49 => InputKey::Nine,       // Keypad-9 (not PageUp for numpad)
             0x4A => InputKey::Minus,      // Keypad--
-            0x4B => InputKey::LeftArrow,  // Keypad-4 or Left
+            0x4B => InputKey::Four,       // Keypad-4 (not Left for numpad)
             0x4C => InputKey::Five,       // Keypad-5
-            0x4D => InputKey::RightArrow, // Keypad-6 or Right
+            0x4D => InputKey::Six,        // Keypad-6 (not Right for numpad)
             0x4E => InputKey::Plus,       // Keypad-+
-            0x4F => InputKey::End,        // Keypad-1 or End
-            0x50 => InputKey::DownArrow,  // Keypad-2 or Down
-            0x51 => InputKey::PageDown,   // Keypad-3 or PageDown
-            0x52 => InputKey::Insert,     // Keypad-0 or Insert
-            0x53 => InputKey::Delete,     // Keypad-. or Del
+            0x4F => InputKey::One,        // Keypad-1 (not End for numpad)
+            0x50 => InputKey::Two,        // Keypad-2 (not Down for numpad)
+            0x51 => InputKey::Three,      // Keypad-3 (not PageDown for numpad)
+            0x52 => InputKey::Zero,       // Keypad-0 (not Insert for numpad)
+            0x53 => InputKey::Period,     // Keypad-. (not Del for numpad)
             0x57 => InputKey::F11,
             0x58 => InputKey::F12,
             _ => InputKey::Nul,
@@ -376,6 +434,7 @@ fn parse_inputkey() -> (InputKey, ScanCode, KeyStatus) {
     static CAPS_LOCK: AtomicBool = AtomicBool::new(false); /* CapsLock state (0-off, 1-on) */
     static SHIFT_KEY: AtomicBool = AtomicBool::new(false); /* Shift next keypress */
     static CTRL_KEY: AtomicBool = AtomicBool::new(false);
+    static EXTENDED_KEY: AtomicBool = AtomicBool::new(false); /* Extended key flag */
 
     let mut code = ScanCode::read();
     let status = Status::read();
@@ -391,9 +450,23 @@ fn parse_inputkey() -> (InputKey, ScanCode, KeyStatus) {
         log::debug!("i8042 keyboard output buffer full");
     }
 
-    /* Skip extension code */
+    /* Handle extension code */
     if code.is_extension() {
+        EXTENDED_KEY.store(true, Ordering::Relaxed);
         return (InputKey::Nul, code, key_status);
+    }
+
+    let is_extended = EXTENDED_KEY.load(Ordering::Relaxed);
+    if is_extended {
+        EXTENDED_KEY.store(false, Ordering::Relaxed);
+        
+        // Handle extended keys
+        if code.is_released() {
+            key_status = KeyStatus::Released;
+            code = ScanCode(code.0 & 0x7F);
+        }
+        
+        return (code.extended_map(), code, key_status);
     }
 
     if code.is_ctrl() {
@@ -420,14 +493,18 @@ fn parse_inputkey() -> (InputKey, ScanCode, KeyStatus) {
         return (InputKey::Nul, code, key_status);
     }
 
-    if code.is_pressed() && code.is_caps_lock() {
-        CAPS_LOCK.fetch_xor(true, Ordering::Relaxed);
+    if code.is_caps_lock() {
+        if code.is_pressed() {
+            CAPS_LOCK.fetch_xor(true, Ordering::Relaxed);
+        } else {
+            key_status = KeyStatus::Released;
+        }
+        // Return a special marker that we'll handle in should_send_event
         return (InputKey::Nul, code, key_status);
     }
 
-    /* Ignore other release events */
+    /* Handle other key release events */
     if code.is_released() {
-        // return (InputKey::Nul, KeyStatus::Released);
         key_status = KeyStatus::Released;
         code = ScanCode(code.0 & 0x7F);
     }
