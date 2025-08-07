@@ -8,10 +8,12 @@ use alloc::{
 };
 use core::{fmt::Debug, iter, mem};
 
-use aster_input::{
-    key::{Key, KeyStatus},
-    InputEvent,
-};
+use aster_input::event_type_codes::{KeyStatus, EventType};
+use aster_input::{input_event, InputEvent};
+use aster_input::{InputDevice as AsterInputDevice, InputDeviceMeta};
+use aster_input::InputID;
+use aster_time::read_monotonic_time;
+
 use aster_util::{field_ptr, safe_ptr::SafePtr};
 use bitflags::bitflags;
 use log::{debug, info};
@@ -208,31 +210,51 @@ impl InputDevice {
     }
 
     fn handle_irq(&self) {
-        let callbacks = self.callbacks.read();
         // Returns true if there may be more events to handle
         let handle_event = |event: &EventBuf| -> bool {
             event.sync().unwrap();
-            let event: VirtioInputEvent = event.read().unwrap();
+            let virtio_event: VirtioInputEvent = event.read().unwrap();
 
-            match event.event_type {
-                0 => return false,
-                // Keyboard
-                1 => {}
-                // TODO: Support mouse device.
-                _ => return true,
-            }
+            match virtio_event.event_type {
+                0 => return false, // End of events
+                // Keyboard events
+                1 => {
+                    let key_status = match virtio_event.value {
+                        1 => KeyStatus::Pressed,
+                        0 => KeyStatus::Released,
+                        _ => return true, // Skip invalid values, continue processing
+                    };
 
-            let status = match event.value {
-                1 => KeyStatus::Pressed,
-                0 => KeyStatus::Released,
-                _ => return false,
-            };
+                    // Get current system time in microseconds
+                    let time_in_microseconds = read_monotonic_time().as_micros() as u64;
 
-            let event = InputEvent::KeyBoard(Key::try_from(event.code).unwrap(), status);
-            info!("Input Event:{:?}", event);
+                    // Dispatch the key event
+                    input_event(InputEvent {
+                        time: time_in_microseconds,
+                        type_: EventType::EvKey as u16,  // EV_KEY
+                        code: virtio_event.code,
+                        value: match key_status {
+                            KeyStatus::Pressed => 1,
+                            KeyStatus::Released => 0,
+                        },
+                    }, super::DEVICE_NAME);
 
-            for callback in callbacks.iter() {
-                callback(event);
+                    // Dispatch the synchronization event (same timestamp)
+                    input_event(InputEvent {
+                        time: time_in_microseconds,
+                        type_: EventType::EvSyn as u16,  // EV_SYN
+                        code: 0,
+                        value: 0,
+                    }, super::DEVICE_NAME);
+
+                    debug!("VirtIO Input Event: type={}, code={}, value={}, status={:?}", 
+                           virtio_event.event_type, virtio_event.code, virtio_event.value, key_status);
+                }
+                // Other event types (mouse, buttons, etc.)
+                _ => {
+                    debug!("VirtIO Input: Unsupported event type {}, skipping", virtio_event.event_type);
+                    return true; // Continue processing other events
+                }
             }
 
             true
@@ -245,6 +267,24 @@ impl InputDevice {
     pub(crate) fn negotiate_features(features: u64) -> u64 {
         assert_eq!(features, 0);
         0
+    }
+}
+
+impl AsterInputDevice for InputDevice {
+    fn metadata(&self) -> InputDeviceMeta {
+        let id = InputID {
+            bustype: 0x11,
+            vendor_id: 0x1234,   
+            product_id: 0x5678,  
+            version: 1,       
+        };
+        InputDeviceMeta {
+            name: self.query_config_id_name(),
+            phys: "dev/virtio".to_string(),
+            uniq: "NULL".to_string(),
+            version: 65537,
+            id: id,
+        }
     }
 }
 
@@ -292,11 +332,11 @@ impl<T, M: HasDaddr> DmaBuf for SafePtr<T, M> {
     }
 }
 
-impl aster_input::InputDevice for InputDevice {
-    fn register_callbacks(&self, function: &'static (dyn Fn(InputEvent) + Send + Sync)) {
-        self.callbacks.write().push(Arc::new(function))
-    }
-}
+// impl aster_input::InputDevice for InputDevice {
+//     fn register_callbacks(&self, function: &'static (dyn Fn(InputEvent) + Send + Sync)) {
+//         self.callbacks.write().push(Arc::new(function))
+//     }
+// }
 
 impl Debug for InputDevice {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

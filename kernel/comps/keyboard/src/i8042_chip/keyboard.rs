@@ -4,7 +4,7 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use aster_input::key::KeyStatus;
+use aster_input::event_type_codes::{KeyStatus, EventType};
 use ostd::{
     arch::{
         kernel::{MappedIrqLine, IRQ_CHIP},
@@ -13,6 +13,11 @@ use ostd::{
     trap::irq::IrqLine,
 };
 use spin::Once;
+use alloc::sync::Arc;
+use aster_input::{InputDevice, InputDeviceMeta, InputEvent, input_event};
+use aster_time::read_monotonic_time;
+use crate::alloc::string::ToString;
+use aster_input::InputID;
 
 use super::controller::{I8042Controller, I8042ControllerError, I8042_CONTROLLER};
 use crate::{InputKey, KEYBOARD_CALLBACKS};
@@ -56,7 +61,29 @@ pub(super) fn init(controller: &mut I8042Controller) -> Result<(), I8042Controll
     irq_line.on_active(handle_keyboard_input);
     IRQ_LINE.call_once(|| irq_line);
 
+    aster_input::register_device("i8042_keyboard".to_string(), Arc::new(I8042Keyboard));
+
     Ok(())
+}
+
+struct I8042Keyboard;
+
+impl InputDevice for I8042Keyboard {
+    fn metadata(&self) -> InputDeviceMeta {
+        let id = InputID {
+            bustype: 0x11,
+            vendor_id: 0x1,   
+            product_id: 0x1,  
+            version: 43841, 
+        };
+        InputDeviceMeta {
+            name: "i8042_keyboard".to_string(),
+            phys: "isa0060/serio0/input0".to_string(),
+            uniq: "NULL".to_string(),
+            version: 65537,
+            id: id,
+        }
+    }
 }
 
 fn handle_keyboard_input(_trap_frame: &TrapFrame) {
@@ -64,12 +91,35 @@ fn handle_keyboard_input(_trap_frame: &TrapFrame) {
         return;
     }
 
-    let Some((key, KeyStatus::Pressed)) = parse_inputkey() else {
-        // Only trigger callbacks for key press events.
+    let Some((key, key_status)) = parse_inputkey() else {
         return;
     };
-    for callback in KEYBOARD_CALLBACKS.lock().iter() {
-        callback(key);
+
+    // Get current system time in microseconds
+    let time_in_microseconds = read_monotonic_time().as_micros() as u64;
+
+    // Dispatch the input event
+    input_event(InputEvent {
+        time: time_in_microseconds,      // Assign the current timestamp
+        type_: EventType::EvKey as u16,  // EV_KEY (example type for key events)
+        code: key as u16,                // Convert InputKey to a u16 representation
+        value: match key_status {
+            KeyStatus::Pressed => 1,
+            KeyStatus::Released => 0,
+        },
+    }, "i8042_keyboard");
+
+    input_event(InputEvent {
+        time: time_in_microseconds,
+        type_: EventType::EvSyn as u16,
+        code: 0,
+        value: 0,
+    }, "i8042_keyboard");
+    
+    if key_status == KeyStatus::Pressed {
+        for callback in KEYBOARD_CALLBACKS.lock().iter() {
+            callback(key);
+        }
     }
 }
 
