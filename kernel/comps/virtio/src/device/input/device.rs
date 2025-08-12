@@ -8,12 +8,11 @@ use alloc::{
 };
 use core::{fmt::Debug, iter, mem};
 
-use aster_input::event_type_codes::{KeyStatus, EventType};
-use aster_input::{input_event, InputEvent};
-use aster_input::{InputDevice as AsterInputDevice, InputDeviceMeta};
-use aster_input::InputID;
+use aster_input::{
+    event_type_codes::{EventType, KeyStatus},
+    input_event, input_register_device, InputCapability, InputDevice as InputDeviceTrait, InputEvent, InputId,
+};
 use aster_time::read_monotonic_time;
-
 use aster_util::{field_ptr, safe_ptr::SafePtr};
 use bitflags::bitflags;
 use log::{debug, info};
@@ -66,6 +65,9 @@ pub const FF_STATUS: u8 = 0x17;
 
 const QUEUE_SIZE: u16 = 64;
 
+/// Global device reference for IRQ handler
+static VIRTIO_INPUT_DEVICE: spin::Once<Arc<dyn InputDeviceTrait>> = spin::Once::new();
+
 /// Virtual human interface devices such as keyboards, mice and tablets.
 ///
 /// An instance of the virtio device represents one such input device.
@@ -79,6 +81,11 @@ pub struct InputDevice {
     #[expect(clippy::type_complexity)]
     callbacks: RwLock<Vec<Arc<dyn Fn(InputEvent) + Send + Sync + 'static>>, LocalIrqDisabled>,
     transport: SpinLock<Box<dyn VirtioTransport>>,
+    // New fields for InputDev trait
+    device_name: String,
+    device_phys: String,
+    device_id: InputId,
+    capability: InputCapability,
 }
 
 impl InputDevice {
@@ -104,14 +111,29 @@ impl InputDevice {
             }
         }
 
-        let device = Arc::new(Self {
+        // Create initial capability and metadata
+        let mut capability = InputCapability::new();
+        // We'll set the actual capabilities after querying the device
+
+        let temp_device = Self {
             config: VirtioInputConfig::new(transport.as_mut()),
             event_queue: SpinLock::new(event_queue),
             status_queue,
             event_table,
             transport: SpinLock::new(transport),
             callbacks: RwLock::new(Vec::new()),
-        });
+            device_name: "virtio_input".to_string(), // Default name, can be queried later
+            device_phys: "virtio".to_string(),
+            device_id: InputId {
+                bustype: InputId::BUS_VIRTUAL,
+                vendor: 0x1AF4,  // VirtIO vendor ID
+                product: 0x0012, // VirtIO input device ID
+                version: 0x0001,
+            },
+            capability,
+        };
+
+        let device = Arc::new(temp_device);
 
         let name = device.query_config_id_name();
         info!("Virtio input device name:{}", name);
@@ -142,7 +164,12 @@ impl InputDevice {
         transport.finish_init();
         drop(transport);
 
-        aster_input::register_device(super::DEVICE_NAME.to_string(), device);
+        // Register with the new input subsystem
+        input_register_device(device.clone()).map_err(|_| VirtioDeviceError::QueueUnknownError)?;
+
+        // Store device reference for IRQ handler (convert to trait object)
+        let device_trait_object: Arc<dyn InputDeviceTrait> = device;
+        VIRTIO_INPUT_DEVICE.call_once(|| device_trait_object);
 
         Ok(())
     }
@@ -228,31 +255,36 @@ impl InputDevice {
                     // Get current system time in microseconds
                     let time_in_microseconds = read_monotonic_time().as_micros() as u64;
 
-                    // Dispatch the key event
-                    input_event(InputEvent {
-                        time: time_in_microseconds,
-                        type_: EventType::EvKey as u16,  // EV_KEY
-                        code: virtio_event.code,
-                        value: match key_status {
-                            KeyStatus::Pressed => 1,
-                            KeyStatus::Released => 0,
-                        },
-                    }, super::DEVICE_NAME);
+                    // Dispatch the key event using new API
+                    if let Some(device) = VIRTIO_INPUT_DEVICE.get() {
+                        let key_event = InputEvent::new(
+                            time_in_microseconds,
+                            EventType::EvKey as u16,
+                            virtio_event.code,
+                            match key_status {
+                                KeyStatus::Pressed => 1,
+                                KeyStatus::Released => 0,
+                            },
+                        );
+                        input_event(device, &key_event);
 
-                    // Dispatch the synchronization event (same timestamp)
-                    input_event(InputEvent {
-                        time: time_in_microseconds,
-                        type_: EventType::EvSyn as u16,  // EV_SYN
-                        code: 0,
-                        value: 0,
-                    }, super::DEVICE_NAME);
+                        // Dispatch the synchronization event
+                        let syn_event =
+                            InputEvent::new(time_in_microseconds, EventType::EvSyn as u16, 0, 0);
+                        input_event(device, &syn_event);
+                    }
 
-                    debug!("VirtIO Input Event: type={}, code={}, value={}, status={:?}", 
-                           virtio_event.event_type, virtio_event.code, virtio_event.value, key_status);
+                    debug!(
+                        "VirtIO Input Event: type={}, code={}, value={}, status={:?}",
+                        virtio_event.event_type, virtio_event.code, virtio_event.value, key_status
+                    );
                 }
                 // Other event types (mouse, buttons, etc.)
                 _ => {
-                    debug!("VirtIO Input: Unsupported event type {}, skipping", virtio_event.event_type);
+                    debug!(
+                        "VirtIO Input: Unsupported event type {}, skipping",
+                        virtio_event.event_type
+                    );
                     return true; // Continue processing other events
                 }
             }
@@ -270,21 +302,35 @@ impl InputDevice {
     }
 }
 
-impl AsterInputDevice for InputDevice {
-    fn metadata(&self) -> InputDeviceMeta {
-        let id = InputID {
-            bustype: 0x11,
-            vendor_id: 0x1234,   
-            product_id: 0x5678,  
-            version: 1,       
-        };
-        InputDeviceMeta {
-            name: self.query_config_id_name(),
-            phys: "dev/virtio".to_string(),
-            uniq: "NULL".to_string(),
-            version: 65537,
-            id: id,
-        }
+impl InputDeviceTrait for InputDevice {
+    fn name(&self) -> &str {
+        &self.device_name
+    }
+
+    fn phys(&self) -> &str {
+        &self.device_phys
+    }
+
+    fn uniq(&self) -> &str {
+        "" // VirtIO devices don't have unique serial numbers
+    }
+
+    fn id(&self) -> InputId {
+        self.device_id
+    }
+
+    fn capability(&self) -> &InputCapability {
+        &self.capability
+    }
+
+    fn open(&self) -> Result<(), i32> {
+        // VirtIO input devices are always ready
+        Ok(())
+    }
+
+    fn close(&self) -> Result<(), i32> {
+        // No special cleanup needed
+        Ok(())
     }
 }
 

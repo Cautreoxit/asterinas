@@ -170,26 +170,40 @@ pub struct EventDeviceHandler {
 }
 
 impl InputHandler for EventDeviceHandler {
-    /// Specifies the event types this handler can process.
-    fn supported_event_types(&self) -> Vec<u16> {
-        vec![EventType::EvSyn as u16, EventType::EvKey as u16, EventType::EvRel as u16] // Supports keyboard and mouse events
+    fn name(&self) -> &str {
+        "event_device_handler"
     }
 
-    /// Handles the input event by pushing it to the event queue.
-    fn handle_event(&self, event: InputEvent, str: &str) -> core::result::Result<(), core::convert::Infallible> {
+    fn match_device(&self, _dev: &Arc<dyn InputDevice>) -> bool {
+        // This handler matches all devices (for now)
+        true
+    }
+
+    fn connect(&self, _dev: Arc<dyn InputDevice>) -> Result<(), i32> {
+        // Connection logic can be implemented here if needed
+        Ok(())
+    }
+
+    fn disconnect(&self, _dev: &Arc<dyn InputDevice>) -> Result<(), i32> {
+        // Disconnection logic can be implemented here if needed
+        Ok(())
+    }
+
+    fn event(&self, dev: &Arc<dyn InputDevice>, event: &InputEvent) {
+        // Handle the input event by pushing it to the event queue
         let devices = self.event_devices.lock();
         for weak_dev in devices.iter() {
             if let Some(event_device) = weak_dev.upgrade() {
                 let metadata = event_device.input_device.metadata();
                 let name = metadata.name.as_str();
-                if name != str {
+                if name != dev.name() {
                     continue;
                 }
 
                 // Use the timestamp from the input event instead of getting current time
                 // This ensures events from the same input action have the same timestamp
-                let sec = event.time / 1_000_000;
-                let usec = event.time % 1_000_000;
+                let sec = event.sec;
+                let usec = event.usec;
 
                 // Convert InputEvent to InputEventLinux
                 let linux_event = InputEventLinux {
@@ -203,7 +217,5 @@ impl InputHandler for EventDeviceHandler {
                 event_device.push_event(linux_event);
             }
         }
-
-        Ok(())
     }
 }

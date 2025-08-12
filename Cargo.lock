@@ -129,8 +129,10 @@ dependencies = [
 name = "aster-input"
 version = "0.1.0"
 dependencies = [
+ "aster-time",
  "component",
  "int-to-c-enum",
+ "log",
  "ostd",
  "spin",
 ]

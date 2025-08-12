@@ -220,6 +220,7 @@ pub(super) enum I8042ControllerError {
     DeviceResetFailed,
     DeviceUnknown,
     DeviceAllocIrqFailed,
+    DeviceRegisterFailed,
 }
 
 /// The commands that can be sent to the PS/2 controller.

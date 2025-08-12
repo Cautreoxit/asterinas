@@ -7,9 +7,11 @@ edition = "2021"
 
 [dependencies]
 spin = "0.9.4"
+log = "0.4"
 ostd = { path = "../../../ostd" }
 component = { path = "../../libs/comp-sys/component" }
 int-to-c-enum = { path = "../../libs/int-to-c-enum" }
+aster_time = { path = "../time", package = "aster-time" }
 
 [lints]
 workspace = true
