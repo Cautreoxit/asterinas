@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
+use bitvec::prelude::*;
+use bitflags::bitflags;
+
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventType {
@@ -19,6 +22,78 @@ pub enum EventType {
 // Maximum value for event types
 const EV_MAX: usize = 0x1f;
 pub const EV_COUNT: usize = EV_MAX + 1;
+
+bitflags! {
+    /// Supported input event types.
+    /// 
+    /// This represents which types of input events a device can generate.
+    pub struct EventTypeFlags: u32 {
+        /// Synchronization events
+        const SYN = 1 << 0x00;
+        /// Key press/release events
+        const KEY = 1 << 0x01;
+        /// Relative movement events (mouse, trackball, etc.)
+        const REL = 1 << 0x02;
+        /// Absolute position events (touchpad, tablet, etc.)
+        const ABS = 1 << 0x03;
+        /// Miscellaneous events
+        const MSC = 1 << 0x04;
+        /// Switch events
+        const SW = 1 << 0x05;
+        /// LED events
+        const LED = 1 << 0x11;
+        /// Sound events
+        const SND = 1 << 0x12;
+        /// Repeat events
+        const REP = 1 << 0x14;
+        /// Force feedback events
+        const FF = 1 << 0x15;
+        /// Power management events
+        const PWR = 1 << 0x16;
+        /// Force feedback status events
+        const FF_STATUS = 1 << 0x17;
+    }
+}
+
+impl EventTypeFlags {
+    /// Create a new empty set of event type flags
+    pub const fn new() -> Self {
+        Self::empty()
+    }
+
+    /// Convert an EventType enum to its corresponding flag
+    pub const fn from_event_type(event_type: EventType) -> Self {
+        match event_type {
+            EventType::EvSyn => Self::SYN,
+            EventType::EvKey => Self::KEY,
+            EventType::EvRel => Self::REL,
+            EventType::EvAbs => Self::ABS,
+            EventType::EvMsc => Self::MSC,
+            EventType::EvSw => Self::SW,
+            EventType::EvLed => Self::LED,
+            EventType::EvSnd => Self::SND,
+            EventType::EvRep => Self::REP,
+            EventType::EvFf => Self::FF,
+            EventType::EvPwr => Self::PWR,
+            EventType::EvFfStatus => Self::FF_STATUS,
+        }
+    }
+
+    /// Add support for an event type
+    pub fn add_event_type(&mut self, event_type: EventType) {
+        *self |= Self::from_event_type(event_type);
+    }
+
+    /// Remove support for an event type
+    pub fn remove_event_type(&mut self, event_type: EventType) {
+        *self &= !Self::from_event_type(event_type);
+    }
+
+    /// Check if an event type is supported
+    pub fn supports_event_type(&self, event_type: EventType) -> bool {
+        self.contains(Self::from_event_type(event_type))
+    }
+}
 
 impl TryFrom<u8> for EventType {
     type Error = ();
@@ -92,6 +167,42 @@ pub enum RelEvent {
 // Maximum value for relative axes
 const REL_MAX: usize = 0x0f;
 pub const REL_COUNT: usize = REL_MAX + 1;
+
+#[derive(Debug, Clone)]
+pub struct RelEventMap(BitVec<u8>);
+
+impl RelEventMap {
+    pub fn new() -> Self {
+        // Initialize with all zeros, sized to hold all possible relative events
+        Self(BitVec::repeat(false, REL_COUNT))
+    }
+
+    /// Set a relative event as supported
+    pub fn set(&mut self, rel_event: RelEvent) {
+        let index = rel_event as usize;
+        if index < REL_COUNT {
+            self.0.set(index, true);
+        }
+    }
+
+    /// Clear a relative event (mark as not supported)
+    pub fn clear(&mut self, rel_event: RelEvent) {
+        let index = rel_event as usize;
+        if index < REL_COUNT {
+            self.0.set(index, false);
+        }
+    }
+
+    /// Check if a relative event is supported
+    pub fn contains(&self, rel_event: RelEvent) -> bool {
+        let index = rel_event as usize;
+        if index < REL_COUNT {
+            self.0.get(index).map(|bit| *bit).unwrap_or(false)
+        } else {
+            false
+        }
+    }
+}
 
 /// Absolute axes
 #[repr(u16)]
@@ -219,19 +330,46 @@ pub enum SoundEvent {
 const SND_MAX: usize = 0x07;
 pub const SND_COUNT: usize = SND_MAX + 1;
 
-/// Mouse key events
-#[repr(u16)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MouseKeyEvent {
-    MouseLeft = 0x110,
-    MouseRight = 0x111,
-    MouseMiddle = 0x112,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyStatus {
     Released,
     Pressed,
+}
+
+#[derive(Debug, Clone)]
+pub struct KeyEventMap(BitVec<u8>);
+
+impl KeyEventMap {
+    pub fn new() -> Self {
+        // Initialize with all zeros, sized to hold all possible key events
+        Self(BitVec::repeat(false, KEY_COUNT))
+    }
+
+    /// Set a key event as supported
+    pub fn set(&mut self, key_event: KeyEvent) {
+        let index = key_event as usize;
+        if index < KEY_COUNT {
+            self.0.set(index, true);
+        }
+    }
+
+    /// Clear a key event (mark as not supported)
+    pub fn clear(&mut self, key_event: KeyEvent) {
+        let index = key_event as usize;
+        if index < KEY_COUNT {
+            self.0.set(index, false);
+        }
+    }
+
+    /// Check if a key event is supported
+    pub fn contains(&self, key_event: KeyEvent) -> bool {
+        let index = key_event as usize;
+        if index < KEY_COUNT {
+            self.0.get(index).map(|bit| *bit).unwrap_or(false)
+        } else {
+            false
+        }
+    }
 }
 
 #[repr(u16)]

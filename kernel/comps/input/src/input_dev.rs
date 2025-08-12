@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 use core::any::Any;
 
 use ostd::Pod;
 
-/// Input device identification - equivalent to Linux struct input_id
+use crate::event_type_codes::{EventTypeFlags, KeyEventMap, RelEventMap};
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod)]
 pub struct InputId {
@@ -51,31 +52,24 @@ impl InputId {
 }
 
 /// Input device capability bitmaps.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct InputCapability {
     /// Supported event types (EV_KEY, EV_REL, etc.)
-    pub evbit: Vec<u16>,
+    pub evbit: EventTypeFlags,
     /// Supported key/button codes
-    pub keybit: Vec<u16>,
+    pub keybit: KeyEventMap,
     /// Supported relative axis codes
-    pub relbit: Vec<u16>,
-    /// Supported absolute axis codes
-    pub absbit: Vec<u16>,
-    /// Supported MSC events
-    pub mscbit: Vec<u16>,
-    /// Supported LED events
-    pub ledbit: Vec<u16>,
-    /// Supported sound events
-    pub sndbit: Vec<u16>,
-    /// Supported force feedback events
-    pub ffbit: Vec<u16>,
-    /// Supported switch events
-    pub swbit: Vec<u16>,
+    pub relbit: RelEventMap,
+    // TODO: Add absbit, mscbit, ledbit, sndbit, ffbit, swbit
 }
 
 impl InputCapability {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            evbit: EventTypeFlags::new(),
+            keybit: KeyEventMap::new(),
+            relbit: RelEventMap::new(),
+        }
     }
 
     /// Set a capability bit
@@ -91,30 +85,58 @@ impl InputCapability {
     }
 
     /// Set event type capability
-    pub fn set_evbit(&mut self, ev_type: u16) {
-        Self::set_bit(&mut self.evbit, ev_type);
+    pub fn set_evbit(&mut self, event_type: crate::event_type_codes::EventType) {
+        self.evbit.add_event_type(event_type);
     }
 
     /// Set key capability
-    pub fn set_keybit(&mut self, key_code: u16) {
-        Self::set_bit(&mut self.keybit, key_code);
-        self.set_evbit(crate::event_type_codes::EventType::EvKey as u16);
+    pub fn set_keybit(&mut self, key_event: crate::event_type_codes::KeyEvent) {
+        self.keybit.set(key_event);
+        self.set_evbit(crate::event_type_codes::EventType::EvKey);
+    }
+
+    /// Check if a key event is supported
+    pub fn has_key(&self, key_event: crate::event_type_codes::KeyEvent) -> bool {
+        self.keybit.contains(key_event)
+    }
+
+    /// Clear a key capability
+    pub fn clear_keybit(&mut self, key_event: crate::event_type_codes::KeyEvent) {
+        self.keybit.clear(key_event);
     }
 
     /// Set relative axis capability
-    pub fn set_relbit(&mut self, rel_code: u16) {
-        Self::set_bit(&mut self.relbit, rel_code);
-        self.set_evbit(crate::event_type_codes::EventType::EvRel as u16);
+    pub fn set_relbit(&mut self, rel_event: crate::event_type_codes::RelEvent) {
+        self.relbit.set(rel_event);
+        self.set_evbit(crate::event_type_codes::EventType::EvRel);
     }
 
-    /// Set absolute axis capability
-    pub fn set_absbit(&mut self, abs_code: u16) {
-        Self::set_bit(&mut self.absbit, abs_code);
-        self.set_evbit(crate::event_type_codes::EventType::EvAbs as u16);
+    /// Check if a relative event is supported
+    pub fn has_rel(&self, rel_event: crate::event_type_codes::RelEvent) -> bool {
+        self.relbit.contains(rel_event)
+    }
+
+    /// Clear a relative capability
+    pub fn clear_relbit(&mut self, rel_event: crate::event_type_codes::RelEvent) {
+        self.relbit.clear(rel_event);
+    }
+
+    /// Check if an event type is supported
+    pub fn supports_event_type(&self, event_type: crate::event_type_codes::EventType) -> bool {
+        self.evbit.supports_event_type(event_type)
+    }
+
+    /// Remove support for an event type
+    pub fn clear_evbit(&mut self, event_type: crate::event_type_codes::EventType) {
+        self.evbit.remove_event_type(event_type);
+    }
+
+    /// Get all supported event types
+    pub fn get_event_types(&self) -> EventTypeFlags {
+        self.evbit
     }
 }
 
-/// Input device trait - equivalent to Linux struct input_dev
 pub trait InputDevice: Send + Sync + Any {
     /// Device name
     fn name(&self) -> &str;
@@ -130,34 +152,4 @@ pub trait InputDevice: Send + Sync + Any {
 
     /// Device capabilities
     fn capability(&self) -> &InputCapability;
-
-    /// Open device
-    fn open(&self) -> Result<(), i32> {
-        Ok(())
-    }
-
-    /// Close device
-    fn close(&self) -> Result<(), i32> {
-        Ok(())
-    }
-
-    /// Handle events sent TO the device
-    fn event(&self, _type_: u16, _code: u16, _value: i32) -> Result<(), i32> {
-        Ok(())
-    }
-
-    /// Flush device
-    fn flush(&self) -> Result<(), i32> {
-        Ok(())
-    }
-
-    /// Get keycode (equivalent to input_dev->getkeycode)
-    fn getkeycode(&self, _scancode: u32) -> Result<u32, i32> {
-        Err(-1) // Not implemented by default
-    }
-
-    /// Set keycode (equivalent to input_dev->setkeycode)
-    fn setkeycode(&self, _scancode: u32, _keycode: u32) -> Result<u32, i32> {
-        Err(-1) // Not implemented by default
-    }
 }

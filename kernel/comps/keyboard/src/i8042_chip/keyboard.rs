@@ -3,14 +3,14 @@
 //! The i8042 keyboard driver.
 
 use alloc::{string::String, sync::Arc};
-use log::error;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use aster_input::{
     event_type_codes::{EventType, KeyStatus},
-    input_event, input_register_device, InputCapability, InputDevice, InputEvent, InputId,
+    InputCapability, InputDevice, InputEvent, InputId,
 };
 use aster_time::read_monotonic_time;
+use log::error;
 use ostd::{
     arch::{
         kernel::{MappedIrqLine, IRQ_CHIP},
@@ -67,17 +67,14 @@ pub(super) fn init(controller: &mut I8042Controller) -> Result<(), I8042Controll
 
     // Create and register the i8042 keyboard device with new API
     let keyboard_device = Arc::new(I8042Keyboard::new());
-    input_register_device(keyboard_device.clone())
+    aster_input::register_device(keyboard_device.clone())
         .map_err(|_| I8042ControllerError::DeviceRegisterFailed)?;
 
-    // Store the device reference for use in IRQ handler (convert to trait object)
-            let device_trait_object: Arc<dyn InputDevice> = keyboard_device;
-    KEYBOARD_DEVICE.call_once(|| device_trait_object);
+    KEYBOARD_DEVICE.call_once(|| keyboard_device);
 
     Ok(())
 }
 
-/// I8042 PS/2 Keyboard Device
 pub struct I8042Keyboard {
     name: String,
     phys: String,
@@ -87,26 +84,25 @@ pub struct I8042Keyboard {
 }
 
 impl I8042Keyboard {
-    /// Create a new I8042 keyboard device
     pub fn new() -> Self {
         let mut capability = InputCapability::new();
 
-        // Set supported event types
-        capability.set_evbit(aster_input::event_type_codes::EventType::EvKey as u16);
-        capability.set_evbit(aster_input::event_type_codes::EventType::EvSyn as u16);
-        capability.set_evbit(aster_input::event_type_codes::EventType::EvRep as u16);
+        capability.set_evbit(aster_input::event_type_codes::EventType::EvKey);
+        capability.set_evbit(aster_input::event_type_codes::EventType::EvSyn);
+        capability.set_evbit(aster_input::event_type_codes::EventType::EvRep);
 
-        // Add all standard keyboard keys (simplified - in practice you'd add all supported keys)
-        for key_code in 1..=127u16 {
-            capability.set_keybit(key_code);
-        }
+        // TODO: Add all standard keyboard keys
+        // for key_code in 1..=127u16 {
+        //     capability.set_keybit(key_code);
+        // }
+        capability.set_keybit(aster_input::event_type_codes::KeyEvent::Key1);
 
         Self {
             name: "i8042_keyboard".to_string(),
             phys: "isa0060/serio0/input0".to_string(),
-            uniq: "".to_string(), // i8042 doesn't have unique ID
+            uniq: "".to_string(),
             id: InputId {
-                bustype: InputId::BUS_I8042, // PS/2 bus type
+                bustype: InputId::BUS_I8042,
                 vendor: 0x0001,
                 product: 0x0001,
                 version: 0x0100,
@@ -136,16 +132,6 @@ impl InputDevice for I8042Keyboard {
     fn capability(&self) -> &InputCapability {
         &self.capability
     }
-
-    fn open(&self) -> Result<(), i32> {
-        // i8042 keyboard is always "open" - no special initialization needed
-        Ok(())
-    }
-
-    fn close(&self) -> Result<(), i32> {
-        // i8042 keyboard doesn't need special cleanup
-        Ok(())
-    }
 }
 
 fn handle_keyboard_input(_trap_frame: &TrapFrame) {
@@ -173,11 +159,11 @@ fn handle_keyboard_input(_trap_frame: &TrapFrame) {
                 KeyStatus::Released => 0,
             },
         );
-        input_event(device, &key_event);
+        aster_input::submit_event(device, &key_event);
 
         // Send synchronization event
         let syn_event = InputEvent::new(time_in_microseconds, EventType::EvSyn as u16, 0, 0);
-        input_event(device, &syn_event);
+        aster_input::submit_event(device, &syn_event);
     }
 
     if key_status == KeyStatus::Pressed {

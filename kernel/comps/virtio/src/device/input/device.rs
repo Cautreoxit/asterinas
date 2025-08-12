@@ -10,7 +10,8 @@ use core::{fmt::Debug, iter, mem};
 
 use aster_input::{
     event_type_codes::{EventType, KeyStatus},
-    input_event, input_register_device, InputCapability, InputDevice as InputDeviceTrait, InputEvent, InputId,
+    InputCapability, InputDevice as InputDeviceTrait,
+    InputEvent, InputId,
 };
 use aster_time::read_monotonic_time;
 use aster_util::{field_ptr, safe_ptr::SafePtr};
@@ -165,7 +166,7 @@ impl InputDevice {
         drop(transport);
 
         // Register with the new input subsystem
-        input_register_device(device.clone()).map_err(|_| VirtioDeviceError::QueueUnknownError)?;
+        aster_input::register_device(device.clone()).map_err(|_| VirtioDeviceError::QueueUnknownError)?;
 
         // Store device reference for IRQ handler (convert to trait object)
         let device_trait_object: Arc<dyn InputDeviceTrait> = device;
@@ -266,12 +267,12 @@ impl InputDevice {
                                 KeyStatus::Released => 0,
                             },
                         );
-                        input_event(device, &key_event);
+                        aster_input::submit_event(device, &key_event);
 
                         // Dispatch the synchronization event
                         let syn_event =
                             InputEvent::new(time_in_microseconds, EventType::EvSyn as u16, 0, 0);
-                        input_event(device, &syn_event);
+                        aster_input::submit_event(device, &syn_event);
                     }
 
                     debug!(
@@ -321,16 +322,6 @@ impl InputDeviceTrait for InputDevice {
 
     fn capability(&self) -> &InputCapability {
         &self.capability
-    }
-
-    fn open(&self) -> Result<(), i32> {
-        // VirtIO input devices are always ready
-        Ok(())
-    }
-
-    fn close(&self) -> Result<(), i32> {
-        // No special cleanup needed
-        Ok(())
     }
 }
 
