@@ -1,180 +1,214 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use alloc::{format, string::String, sync::Arc, vec::Vec};
-use core::sync::atomic::{AtomicU32, Ordering};
+use alloc::{sync::{Arc, Weak}, vec::Vec};
+use ostd::sync::RwLock;
 
-use ostd::sync::SpinLock;
+use crate::{InputDevice, InputHandlerClass, InputHandler, InputEvent};
+use core::fmt::Debug;
 
-use crate::{InputDevice, InputEvent, InputHandler};
 
-pub struct InputHandle {
-    dev: Arc<dyn InputDevice>,
-    handler: Arc<dyn InputHandler>,
-    name: String,
-    open_count: AtomicU32,
+/// Registry entry for each registered device
+/// 
+/// This serves as the connection point between devices and their handlers.
+#[derive(Debug)]
+pub struct InputDeviceRegistry {
+    /// The input device
+    pub device: Arc<dyn InputDevice>,
+    /// Handlers connected to this device (shared with RegisteredInputDevice)
+    pub handlers: Arc<RwLock<Vec<Arc<dyn InputHandler>>>>,
 }
 
-impl InputHandle {
-    pub fn new(dev: Arc<dyn InputDevice>, handler: Arc<dyn InputHandler>, name: String) -> Self {
+/// Type-safe wrapper ensuring only registered devices can submit events.
+pub struct RegisteredInputDevice {
+    /// Original device
+    device: Arc<dyn InputDevice>,
+    /// Reference to handlers for direct event dispatch
+    handlers: Arc<RwLock<Vec<Arc<dyn InputHandler>>>>,
+}
+
+impl RegisteredInputDevice {
+    pub fn new(device: Arc<dyn InputDevice>, handlers: Arc<RwLock<Vec<Arc<dyn InputHandler>>>>) -> Self {
         Self {
-            dev,
-            handler,
-            name,
-            open_count: AtomicU32::new(0),
+            device,
+            handlers,
         }
     }
 
-    /// Check if handle is open
-    pub fn is_open(&self) -> bool {
-        // error!("--------------This is is_open--------------");
-        self.open_count.load(Ordering::Relaxed) > 0
+    /// Submit a single event to all handlers efficiently
+    pub fn submit_event(&self, event: &InputEvent) {
+        let handlers = self.handlers.read();
+        if handlers.is_empty() {
+            log::error!("No handlers for device: {}, event dropped!", self.device.name());
+            return;
+        }
+        
+        for handler in handlers.iter() {
+            handler.handle_event(event);
+        }
+    }
+
+    /// Submit multiple events in batch
+    pub fn submit_events(&self, events: &[InputEvent]) {
+        let handlers = self.handlers.read();
+        if handlers.is_empty() {
+            log::error!("No handlers for device: {}, event dropped!", self.device.name());
+            return;
+        }
+        
+        for handler in handlers.iter() {
+            handler.handle_events(events);
+        }
+    }
+
+    /// Get the underlying device reference
+    pub fn device(&self) -> &Arc<dyn InputDevice> {
+        &self.device
+    }
+
+    /// Get the number of connected handlers
+    pub fn handler_count(&self) -> usize {
+        self.handlers.read().len()
+    }
+    
+    // /// Check if the device is still registered and valid for event submission
+    // pub fn is_valid(&self) -> bool {
+    //     !self.handlers.read().is_empty()
+    // }
+}
+
+impl Drop for RegisteredInputDevice {
+    fn drop(&mut self) {
+        log::info!("Unregistering input device: {}", self.device.name());
     }
 }
 
+#[derive(Debug)]
 pub struct InputCore {
-    devices: SpinLock<Vec<Arc<dyn InputDevice>>>,
-    handlers: SpinLock<Vec<Arc<dyn InputHandler>>>,
-    handles: SpinLock<Vec<Arc<InputHandle>>>,
+    /// All registered devices with their handlers
+    devices: RwLock<Vec<InputDeviceRegistry>>,
+    /// All registered handler classes
+    handler_classes: RwLock<Vec<Arc<dyn InputHandlerClass>>>,
 }
 
 impl InputCore {
+    /// Create a new input core
     pub fn new() -> Self {
         Self {
-            devices: SpinLock::new(Vec::new()),
-            handlers: SpinLock::new(Vec::new()),
-            handles: SpinLock::new(Vec::new()),
+            devices: RwLock::new(Vec::new()),
+            handler_classes: RwLock::new(Vec::new()),
         }
     }
 
-    /// Register an input device.
-    pub fn register_device(&self, device: Arc<dyn InputDevice>) -> Result<(), i32> {
-        // Add device to registry
-        self.devices.lock().push(device.clone());
-
-        // Try to connect device to all compatible handlers
-        let handlers = self.handlers.lock().clone();
-        for handler in handlers {
-            if handler.match_device(&device) {
-                // Handler just indicates if it wants to connect
-                if handler.connect(device.clone()).is_ok() {
-                    // InputCore creates the handle internally
-                    let handle_name = format!("{}-{}", handler.name(), device.name());
-                    let handle = Arc::new(InputHandle::new(
-                        device.clone(),
-                        handler.clone(),
-                        handle_name,
-                    ));
-                    self.handles.lock().push(handle);
-                }
+    /// Register a new handler class
+    pub fn register_handler_class(
+        &self,
+        handler_class: Arc<dyn InputHandlerClass>,
+    ) -> Result<(), i32> {
+        // Add to handler classes registry
+        self.handler_classes.write().push(handler_class.clone());
+        
+        // Connect to all existing devices
+        let devices = self.devices.read();
+        for device_registry in devices.iter() {
+            if let Ok(handler) = handler_class.connect(device_registry.device.clone()) {
+                device_registry.handlers.write().push(handler);
             }
         }
-
+        
+        log::info!("Registered handler class: {}", handler_class.name());
         Ok(())
     }
 
-    /// Unregister an input device.
+    /// Unregister a handler class
+    pub fn unregister_handler_class(
+        &self,
+        handler_class: &Arc<dyn InputHandlerClass>,
+    ) -> Result<(), i32> {
+        let class_name = handler_class.name();
+        
+        // Remove from handler classes
+        self.handler_classes.write().retain(|h| h.name() != class_name);
+        
+        // Disconnect from all devices and remove handlers
+        let devices = self.devices.read();
+        for device_registry in devices.iter() {
+            // Notify handler class about disconnection
+            let _ = handler_class.disconnect(&device_registry.device);
+            
+            // Remove handlers belonging to this class
+            device_registry.handlers.write().retain(|h| h.class_name() != class_name);
+        }
+        
+        log::info!("Unregistered handler class: {}", handler_class.name());
+        Ok(())
+    }
+
+    /// Register a new input device and return type-safe wrapper
+    pub fn register_device(
+        &self,
+        device: Arc<dyn InputDevice>,
+    ) -> Result<RegisteredInputDevice, i32> {        
+        // Connect all existing handler classes
+        let handler_classes = self.handler_classes.read();
+        let mut connected_handlers = Vec::new();
+        
+        for handler_class in handler_classes.iter() {
+            if let Ok(handler) = handler_class.connect(device.clone()) {
+                connected_handlers.push(handler);
+            }
+        }
+        
+        let handlers = Arc::new(RwLock::new(connected_handlers));
+        
+        let new_registry = InputDeviceRegistry {
+            device: device.clone(),
+            handlers: handlers.clone(),
+        };
+        
+        // Add to devices registry
+        self.devices.write().push(new_registry);
+        
+        Ok(RegisteredInputDevice::new(device, handlers))
+    }
+
+    /// Unregister an input device
     pub fn unregister_device(&self, device: &Arc<dyn InputDevice>) -> Result<(), i32> {
-        // Remove device from registry
-        self.devices.lock().retain(|d| !Arc::ptr_eq(d, device));
-
-        // Disconnect all handles for this device
-        let mut handles = self.handles.lock();
-        handles.retain(|handle| {
-            if Arc::ptr_eq(&handle.dev, device) {
-                let _ = handle.handler.disconnect(device);
-                false
-            } else {
-                true
+        let mut devices = self.devices.write();
+        
+        // Find the device to remove
+        if let Some(pos) = devices.iter().position(|registry| Arc::ptr_eq(&registry.device, device)) {
+            let device_registry = devices.remove(pos);
+            
+            // Clear handlers to invalidate any existing RegisteredInputDevice instances
+            device_registry.handlers.write().clear();
+            
+            // Disconnect all handler classes from this device
+            let handler_classes = self.handler_classes.read();
+            for handler_class in handler_classes.iter() {
+                let _ = handler_class.disconnect(&device_registry.device);
             }
-        });
-
-        Ok(())
-    }
-
-    /// Register an input handler.
-    pub fn register_handler(&self, handler: Arc<dyn InputHandler>) -> Result<(), i32> {
-        // Add handler to registry
-        self.handlers.lock().push(handler.clone());
-
-        // Try to connect handler to all compatible devices
-        let devices = self.devices.lock().clone();
-        for device in devices {
-            if handler.match_device(&device) {
-                // Handler just indicates if it wants to connect
-                if handler.connect(device.clone()).is_ok() {
-                    // InputCore creates the handle internally
-                    let handle_name = format!("{}-{}", handler.name(), device.name());
-                    let handle = Arc::new(InputHandle::new(device, handler.clone(), handle_name));
-                    self.handles.lock().push(handle);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Unregister an input handler.
-    pub fn unregister_handler(&self, handler: &Arc<dyn InputHandler>) -> Result<(), i32> {
-        // Remove handler from registry
-        self.handlers.lock().retain(|h| !Arc::ptr_eq(h, handler));
-
-        // Disconnect all handles for this handler
-        let mut handles = self.handles.lock();
-        handles.retain(|handle| {
-            if Arc::ptr_eq(&handle.handler, handler) {
-                let _ = handle.handler.disconnect(&handle.dev);
-                false
-            } else {
-                true
-            }
-        });
-
-        Ok(())
-    }
-
-    /// Pass an event to all handlers connected to this device.
-    pub fn submit_event(&self, dev: &Arc<dyn InputDevice>, event: &InputEvent) {
-        let handles = self.handles.lock();
-
-        for handle in handles.iter() {
-            // let name_match = handle.dev.name() == dev.name();
-            let match_device = Arc::ptr_eq(&handle.dev, dev);
-            if match_device && handle.is_open() {
-                handle.handler.handle_event(&handle.dev, event);
-            }
+            
+            log::info!("Unregistered input device: {}", device.name());
+            Ok(())
+        } else {
+            log::warn!("Device {} not found in registry, cannot unregister", device.name());
+            Err(-22)  //EINVAL
         }
     }
 
-    // /// Open an input device.
-    // pub fn open_device(&self, handle: &InputHandle) -> Result<(), i32> {
-    //     let prev_count = handle.open_count.fetch_add(1, Ordering::Relaxed);
-    //     if prev_count == 0 {
-    //         handle.dev.open()?;
-    //     }
-    //     Ok(())
-    // }
-
-    // /// Close an input device.
-    // pub fn close_device(&self, handle: &InputHandle) -> Result<(), i32> {
-    //     let prev_count = handle.open_count.fetch_sub(1, Ordering::Relaxed);
-    //     if prev_count == 1 {
-    //         handle.dev.close()?;
-    //     }
-    //     Ok(())
-    // }
-
-    /// Get a list of all registered devices.
-    pub fn list_devices(&self) -> Vec<Arc<dyn InputDevice>> {
-        self.devices.lock().clone()
+    /// Get device count
+    pub fn device_count(&self) -> usize {
+        self.devices.read().len()
     }
 
-    /// Get a list of all registered handlers.
-    pub fn list_handlers(&self) -> Vec<Arc<dyn InputHandler>> {
-        self.handlers.lock().clone()
+    /// Get handler class count
+    pub fn handler_class_count(&self) -> usize {
+        self.handler_classes.read().len()
     }
 
-    /// Get a list of all active handles.
-    pub fn list_handles(&self) -> Vec<Arc<InputHandle>> {
-        self.handles.lock().clone()
+    /// Get all registered devices
+    pub fn all_devices(&self) -> Vec<Arc<dyn InputDevice>> {
+        let devices = self.devices.read();
+        devices.iter().map(|registry| registry.device.clone()).collect()
     }
 }

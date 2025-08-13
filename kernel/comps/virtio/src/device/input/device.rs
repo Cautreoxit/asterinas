@@ -11,7 +11,7 @@ use core::{fmt::Debug, iter, mem};
 use aster_input::{
     event_type_codes::{EventType, KeyStatus},
     InputCapability, InputDevice as InputDeviceTrait,
-    InputEvent, InputId,
+    InputEvent, InputId, RegisteredInputDevice,
 };
 use aster_time::read_monotonic_time;
 use aster_util::{field_ptr, safe_ptr::SafePtr};
@@ -68,6 +68,7 @@ const QUEUE_SIZE: u16 = 64;
 
 /// Global device reference for IRQ handler
 static VIRTIO_INPUT_DEVICE: spin::Once<Arc<dyn InputDeviceTrait>> = spin::Once::new();
+static REGISTERED_DEVICE: spin::Once<RegisteredInputDevice> = spin::Once::new();
 
 /// Virtual human interface devices such as keyboards, mice and tablets.
 ///
@@ -166,11 +167,12 @@ impl InputDevice {
         drop(transport);
 
         // Register with the new input subsystem
-        aster_input::register_device(device.clone()).map_err(|_| VirtioDeviceError::QueueUnknownError)?;
+        let registered_device = aster_input::register_device(device.clone()).map_err(|_| VirtioDeviceError::QueueUnknownError)?;
 
         // Store device reference for IRQ handler (convert to trait object)
         let device_trait_object: Arc<dyn InputDeviceTrait> = device;
         VIRTIO_INPUT_DEVICE.call_once(|| device_trait_object);
+        REGISTERED_DEVICE.call_once(|| registered_device);
 
         Ok(())
     }
@@ -256,8 +258,8 @@ impl InputDevice {
                     // Get current system time in microseconds
                     let time_in_microseconds = read_monotonic_time().as_micros() as u64;
 
-                    // Dispatch the key event using new API
-                    if let Some(device) = VIRTIO_INPUT_DEVICE.get() {
+                    // Dispatch the key event 
+                    if let Some(_device) = VIRTIO_INPUT_DEVICE.get() {
                         let key_event = InputEvent::new(
                             time_in_microseconds,
                             EventType::EvKey as u16,
@@ -267,12 +269,14 @@ impl InputDevice {
                                 KeyStatus::Released => 0,
                             },
                         );
-                        aster_input::submit_event(device, &key_event);
+                        if let Some(registered_device) = REGISTERED_DEVICE.get() {
+                            registered_device.submit_event(&key_event);
 
-                        // Dispatch the synchronization event
-                        let syn_event =
-                            InputEvent::new(time_in_microseconds, EventType::EvSyn as u16, 0, 0);
-                        aster_input::submit_event(device, &syn_event);
+                            // Dispatch the synchronization event
+                            let syn_event =
+                                InputEvent::new(time_in_microseconds, EventType::EvSyn as u16, 0, 0);
+                            registered_device.submit_event(&syn_event);
+                        }
                     }
 
                     debug!(

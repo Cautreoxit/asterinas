@@ -7,7 +7,7 @@ use log::info;
 
 pub fn init() {
     // print all the input device to make sure input crate will compile
-    for device in aster_input::list_devices() {
+    for device in aster_input::all_devices() {
         info!("Found Input device, name:{}", device.name());
     }
 

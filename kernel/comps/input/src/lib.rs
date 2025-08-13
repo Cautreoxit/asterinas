@@ -1,24 +1,57 @@
 // SPDX-License-Identifier: MPL-2.0
 
+//! The input devices of Asterinas.
+//!
+//! This crate provides a comprehensive input subsystem for handling various input devices,
+//! including keyboards, mice, etc. It implements an event-driven architecture similar to
+//! the Linux input subsystem.
+//!
+//! # Architecture
+//!
+//! ```text
+//! Input Device → Input Core → Input Handler
+//!      ↓             ↓            ↓
+//!   Hardware    Event Router   Event Consumer
+//!                              (e.g., evdev)
+//! ```
+//!
+//! # Example Usage
+//!
+//! ```no_run
+//! // Register an input device
+//! let device = Arc::new(MyInputDevice::new());
+//! input::register_device(device)?;
+//!
+//! // Register an input handler
+//! let handler = Arc::new(MyInputHandler::new());
+//! input::register_handler(handler)?;
+//!
+//! // Submit an event from device
+//! let event = InputEvent::new(timestamp, EV_KEY, KEY_A, 1);
+//! input::submit_event(&device, &event);
+//! ```
+//!
 #![no_std]
 #![deny(unsafe_code)]
 
 extern crate alloc;
 
 pub mod event_type_codes;
-pub mod input_core;
+mod input_core;
 pub mod input_dev;
 pub mod input_handler;
 
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 
 use component::{init_component, ComponentInitError};
 pub use event_type_codes::*;
-pub use input_core::{InputCore, InputHandle};
 pub use input_dev::{InputCapability, InputDevice, InputId};
-pub use input_handler::InputHandler;
+pub use input_handler::{InputHandler, InputHandlerClass};
+pub use input_core::RegisteredInputDevice;
 use ostd::Pod;
 use spin::Once;
+
+use self::input_core::InputCore;
 
 /// Input event structure   //evdev
 // TODO: rename
@@ -61,68 +94,88 @@ impl InputEvent {
     }
 }
 
-static INPUT_CORE: Once<InputCore> = Once::new();
+/// Register an input device using new architecture.
+pub fn register_device(device: Arc<dyn InputDevice>) -> Result<RegisteredInputDevice, i32> {
+    COMPONENT
+        .get()
+        .unwrap()
+        .input_core
+        .register_device(device)
+}
 
-// Initialize the input subsystem.
+/// Unregister an input device
+pub fn unregister_device(device: &Arc<dyn InputDevice>) -> Result<(), i32> {
+    COMPONENT
+        .get()
+        .unwrap()
+        .input_core
+        .unregister_device(device)
+}
+
+/// Get device count
+pub fn device_count() -> usize {
+    COMPONENT
+        .get()
+        .unwrap()
+        .input_core
+        .device_count()
+}
+
+/// Get handler class count
+pub fn handler_class_count() -> usize {
+    COMPONENT
+        .get()
+        .unwrap()
+        .input_core
+        .handler_class_count()
+}
+
+/// Register a handler class
+pub fn register_handler_class(handler_class: Arc<dyn InputHandlerClass>) -> Result<(), i32> {
+    COMPONENT
+        .get()
+        .unwrap()
+        .input_core
+        .register_handler_class(handler_class)
+}
+
+/// Unregister a handler class
+pub fn unregister_handler_class(handler_class: &Arc<dyn InputHandlerClass>) -> Result<(), i32> {
+    COMPONENT
+        .get()
+        .unwrap()
+        .input_core
+        .unregister_handler_class(handler_class)
+}
+
+/// Get all registered devices
+pub fn all_devices() -> Vec<Arc<dyn InputDevice>> {
+    COMPONENT
+        .get()
+        .unwrap()
+        .input_core
+        .all_devices()
+}
+
+
+static COMPONENT: Once<Component> = Once::new();
+
 #[init_component]
-fn init() -> Result<(), ComponentInitError> {
-    let core = InputCore::new();
-    INPUT_CORE.call_once(|| core);
+fn component_init() -> Result<(), ComponentInitError> {
+    let component = Component::init()?;
+    COMPONENT.call_once(|| component);
     Ok(())
 }
 
-/// Get the global input core instance.
-fn get_input_core() -> &'static InputCore {
-    INPUT_CORE.get().expect("Input subsystem not initialized")
+#[derive(Debug)]
+struct Component {
+    input_core: InputCore,
 }
 
-/// Register an input device.
-pub fn register_device(device: Arc<dyn InputDevice>) -> Result<(), i32> {
-    get_input_core().register_device(device)
-}
-
-/// Unregister an input device.
-pub fn unregister_device(device: &Arc<dyn InputDevice>) -> Result<(), i32> {
-    get_input_core().unregister_device(device)
-}
-
-/// Register an input handler.
-pub fn register_handler(handler: Arc<dyn InputHandler>) -> Result<(), i32> {
-    // error!("--------------This is input_register_handler--------------");
-    get_input_core().register_handler(handler)
-}
-
-/// Unregister an input handler.
-pub fn unregister_handler(handler: &Arc<dyn InputHandler>) -> Result<(), i32> {
-    get_input_core().unregister_handler(handler)
-}
-
-/// Report an input event.
-pub fn submit_event(device: &Arc<dyn InputDevice>, event: &InputEvent) {
-    get_input_core().submit_event(device, event)
-}
-
-// /// Open an input device.
-// pub fn input_open_device(handle: &InputHandle) -> Result<(), i32> {
-//     get_input_core().open_device(handle)
-// }
-
-// /// Close an input device.
-// pub fn input_close_device(handle: &InputHandle) -> Result<(), i32> {
-//     get_input_core().close_device(handle)
-// }
-
-/// List all registered devices.
-pub fn list_devices() -> alloc::vec::Vec<Arc<dyn InputDevice>> {
-    get_input_core().list_devices()
-}
-
-/// List all registered handlers.
-pub fn list_handlers() -> alloc::vec::Vec<Arc<dyn InputHandler>> {
-    get_input_core().list_handlers()
-}
-
-/// List all active handles.
-pub fn list_handles() -> alloc::vec::Vec<Arc<InputHandle>> {
-    get_input_core().list_handles()
+impl Component {
+    pub fn init() -> Result<Self, ComponentInitError> {
+        Ok(Self {
+            input_core: InputCore::new(),
+        })
+    }
 }

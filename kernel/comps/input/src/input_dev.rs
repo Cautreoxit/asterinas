@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use alloc::vec::Vec;
-use core::any::Any;
+use core::{any::Any, fmt::Debug};
 
 use ostd::Pod;
 
@@ -137,7 +137,7 @@ impl InputCapability {
     }
 }
 
-pub trait InputDevice: Send + Sync + Any {
+pub trait InputDevice: Send + Sync + Any + Debug {
     /// Device name
     fn name(&self) -> &str;
 

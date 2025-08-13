@@ -7,7 +7,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use aster_input::{
     event_type_codes::{EventType, KeyStatus},
-    InputCapability, InputDevice, InputEvent, InputId,
+    InputCapability, InputDevice, InputEvent, InputId, RegisteredInputDevice,
 };
 use aster_time::read_monotonic_time;
 use log::error;
@@ -28,6 +28,9 @@ static IRQ_LINE: Once<MappedIrqLine> = Once::new();
 
 /// Global keyboard device instance for IRQ handler
 static KEYBOARD_DEVICE: Once<Arc<dyn InputDevice>> = Once::new();
+
+/// Global registered device instance for event submission
+static REGISTERED_DEVICE: Once<RegisteredInputDevice> = Once::new();
 
 /// ISA interrupt number for i8042 keyboard.
 const ISA_INTR_NUM: u8 = 1;
@@ -67,14 +70,16 @@ pub(super) fn init(controller: &mut I8042Controller) -> Result<(), I8042Controll
 
     // Create and register the i8042 keyboard device with new API
     let keyboard_device = Arc::new(I8042Keyboard::new());
-    aster_input::register_device(keyboard_device.clone())
+    let registered_device = aster_input::register_device(keyboard_device.clone())
         .map_err(|_| I8042ControllerError::DeviceRegisterFailed)?;
 
-    KEYBOARD_DEVICE.call_once(|| keyboard_device);
+    KEYBOARD_DEVICE.call_once(|| keyboard_device as Arc<dyn InputDevice>);
+    REGISTERED_DEVICE.call_once(|| registered_device);
 
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct I8042Keyboard {
     name: String,
     phys: String,
@@ -142,13 +147,12 @@ fn handle_keyboard_input(_trap_frame: &TrapFrame) {
     let Some((key, key_status)) = parse_inputkey() else {
         return;
     };
-    error!("--------------This is handle_keyboard_input--------------");
 
     // Get current system time in microseconds
     let time_in_microseconds = read_monotonic_time().as_micros() as u64;
 
-    // Dispatch the input event using new API
-    if let Some(device) = KEYBOARD_DEVICE.get() {
+    // Dispatch the input event
+    if let Some(_device) = KEYBOARD_DEVICE.get() {
         // Send key press/release event
         let key_event = InputEvent::new(
             time_in_microseconds,
@@ -159,11 +163,16 @@ fn handle_keyboard_input(_trap_frame: &TrapFrame) {
                 KeyStatus::Released => 0,
             },
         );
-        aster_input::submit_event(device, &key_event);
-
-        // Send synchronization event
-        let syn_event = InputEvent::new(time_in_microseconds, EventType::EvSyn as u16, 0, 0);
-        aster_input::submit_event(device, &syn_event);
+    
+        if let Some(registered_device) = REGISTERED_DEVICE.get() {
+            registered_device.submit_event(&key_event);
+    
+            // Send synchronization event
+            let syn_event = InputEvent::new(time_in_microseconds, EventType::EvSyn as u16, 0, 0);
+            registered_device.submit_event(&syn_event);
+        } else {
+            log::error!("Keyboard: REGISTERED_DEVICE not found! Event dropped!");
+        }
     }
 
     if key_status == KeyStatus::Pressed {
