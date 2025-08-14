@@ -9,7 +9,7 @@ use alloc::{
 use core::{fmt::Debug, iter, mem};
 
 use aster_input::{
-    event_type_codes::{EventType, KeyStatus},
+    event_type_codes::{EventType, KeyEvent, KeyStatus, SynEvent},
     InputCapability, InputDevice as InputDeviceTrait,
     InputEvent, InputId, RegisteredInputDevice,
 };
@@ -255,27 +255,20 @@ impl InputDevice {
                         _ => return true, // Skip invalid values, continue processing
                     };
 
-                    // Get current system time in microseconds
-                    let time_in_microseconds = read_monotonic_time().as_micros() as u64;
-
                     // Dispatch the key event 
                     if let Some(_device) = VIRTIO_INPUT_DEVICE.get() {
-                        let key_event = InputEvent::new(
-                            time_in_microseconds,
-                            EventType::EvKey as u16,
-                            virtio_event.code,
-                            match key_status {
-                                KeyStatus::Pressed => 1,
-                                KeyStatus::Released => 0,
-                            },
-                        );
-                        if let Some(registered_device) = REGISTERED_DEVICE.get() {
-                            registered_device.submit_event(&key_event);
+                        // Map VirtIO key code to Linux KeyEvent; for now use a simple mapping
+                        if let Some(linux_key) = virtio_key_to_key_event(virtio_event.code) {
+                            let key_event = InputEvent::key(linux_key, key_status);
+                            if let Some(registered_device) = REGISTERED_DEVICE.get() {
+                                registered_device.submit_event(&key_event);
 
-                            // Dispatch the synchronization event
-                            let syn_event =
-                                InputEvent::new(time_in_microseconds, EventType::EvSyn as u16, 0, 0);
-                            registered_device.submit_event(&syn_event);
+                                // Dispatch the synchronization event
+                                let syn_event = InputEvent::sync(SynEvent::SynReport, 0);
+                                registered_device.submit_event(&syn_event);
+                            }
+                        } else {
+                            debug!("VirtIO Input: unmapped key code {}, dropped", virtio_event.code);
                         }
                     }
 
@@ -305,6 +298,111 @@ impl InputDevice {
         assert_eq!(features, 0);
         0
     }
+}
+
+/// Map VirtIO key codes to Linux KeyEvent enum
+/// VirtIO input uses Linux key codes, so this is mostly a direct mapping
+fn virtio_key_to_key_event(code: u16) -> Option<KeyEvent> {
+    // VirtIO input device uses Linux input event codes directly
+    // Reference: https://github.com/torvalds/linux/blob/master/include/uapi/linux/input-event-codes.h
+    Some(match code {
+        // Letters
+        30 => KeyEvent::KeyA,
+        48 => KeyEvent::KeyB,
+        46 => KeyEvent::KeyC,
+        32 => KeyEvent::KeyD,
+        18 => KeyEvent::KeyE,
+        33 => KeyEvent::KeyF,
+        34 => KeyEvent::KeyG,
+        35 => KeyEvent::KeyH,
+        23 => KeyEvent::KeyI,
+        36 => KeyEvent::KeyJ,
+        37 => KeyEvent::KeyK,
+        38 => KeyEvent::KeyL,
+        50 => KeyEvent::KeyM,
+        49 => KeyEvent::KeyN,
+        24 => KeyEvent::KeyO,
+        25 => KeyEvent::KeyP,
+        16 => KeyEvent::KeyQ,
+        19 => KeyEvent::KeyR,
+        31 => KeyEvent::KeyS,
+        20 => KeyEvent::KeyT,
+        22 => KeyEvent::KeyU,
+        47 => KeyEvent::KeyV,
+        17 => KeyEvent::KeyW,
+        45 => KeyEvent::KeyX,
+        21 => KeyEvent::KeyY,
+        44 => KeyEvent::KeyZ,
+
+        // Numbers
+        2 => KeyEvent::Key1,
+        3 => KeyEvent::Key2,
+        4 => KeyEvent::Key3,
+        5 => KeyEvent::Key4,
+        6 => KeyEvent::Key5,
+        7 => KeyEvent::Key6,
+        8 => KeyEvent::Key7,
+        9 => KeyEvent::Key8,
+        10 => KeyEvent::Key9,
+        11 => KeyEvent::Key0,
+
+        // Function keys
+        59 => KeyEvent::KeyF1,
+        60 => KeyEvent::KeyF2,
+        61 => KeyEvent::KeyF3,
+        62 => KeyEvent::KeyF4,
+        63 => KeyEvent::KeyF5,
+        64 => KeyEvent::KeyF6,
+        65 => KeyEvent::KeyF7,
+        66 => KeyEvent::KeyF8,
+        67 => KeyEvent::KeyF9,
+        68 => KeyEvent::KeyF10,
+        87 => KeyEvent::KeyF11,
+        88 => KeyEvent::KeyF12,
+
+        // Special keys
+        57 => KeyEvent::KeySpace,
+        28 => KeyEvent::KeyEnter,
+        1 => KeyEvent::KeyEsc,
+        14 => KeyEvent::KeyBackspace,
+        15 => KeyEvent::KeyTab,
+
+        // Punctuation
+        12 => KeyEvent::KeyMinus,
+        13 => KeyEvent::KeyEqual,
+        26 => KeyEvent::KeyLeftBrace,
+        27 => KeyEvent::KeyRightBrace,
+        43 => KeyEvent::KeyBackslash,
+        39 => KeyEvent::KeySemicolon,
+        40 => KeyEvent::KeyApostrophe,
+        41 => KeyEvent::KeyGrave,
+        51 => KeyEvent::KeyComma,
+        52 => KeyEvent::KeyDot,
+        53 => KeyEvent::KeySlash,
+
+        // Navigation
+        103 => KeyEvent::KeyUp,
+        108 => KeyEvent::KeyDown,
+        105 => KeyEvent::KeyLeft,
+        106 => KeyEvent::KeyRight,
+        102 => KeyEvent::KeyHome,
+        107 => KeyEvent::KeyEnd,
+        104 => KeyEvent::KeyPageUp,
+        109 => KeyEvent::KeyPageDown,
+        110 => KeyEvent::KeyInsert,
+        111 => KeyEvent::KeyDelete,
+
+        // Modifiers (these might not be directly mappable as they're handled differently)
+        // 42 => KeyEvent::KeyLeftShift,
+        // 54 => KeyEvent::KeyRightShift,
+        // 29 => KeyEvent::KeyLeftCtrl,
+        // 97 => KeyEvent::KeyRightCtrl,
+        // 56 => KeyEvent::KeyLeftAlt,
+        // 100 => KeyEvent::KeyRightAlt,
+
+        // For now, return None for unsupported codes
+        _ => return None,
+    })
 }
 
 impl InputDeviceTrait for InputDevice {

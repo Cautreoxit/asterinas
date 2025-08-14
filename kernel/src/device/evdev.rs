@@ -4,7 +4,7 @@ use alloc::{format, string::String, sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use aster_input::{
-    event_type_codes::EventType, InputDevice, InputEvent, InputHandlerClass, InputHandler,
+    event_type_codes::EventType, InputDevice, InputEvent, InputEventTimed, InputHandlerClass, InputHandler,
 };
 use ostd::sync::SpinLock;
 
@@ -34,7 +34,7 @@ static DEVICE_TO_EVDEV: SpinLock<Vec<(String, Arc<Evdev>)>> = SpinLock::new(Vec:
 
 struct SafeRingBuffer {
     /// Event storage
-    events: Vec<InputEvent>,
+    events: Vec<InputEventTimed>,
     /// Write position
     head: usize,
     /// Read position
@@ -46,7 +46,7 @@ struct SafeRingBuffer {
 impl SafeRingBuffer {
     fn new(capacity: usize) -> Self {
         Self {
-            events: vec![InputEvent::new(0, 0, 0, 0); capacity],
+            events: vec![InputEventTimed { sec: 0, usec: 0, type_: 0, code: 0, value: 0 }; capacity],
             head: 0,
             tail: 0,
             capacity,
@@ -73,7 +73,7 @@ impl SafeRingBuffer {
     }
 
     /// Push an event to the buffer
-    fn push(&mut self, event: InputEvent) -> bool {
+    fn push(&mut self, event: InputEventTimed) -> bool {
         if self.is_full() {
             return false;
         }
@@ -84,7 +84,7 @@ impl SafeRingBuffer {
     }
 
     /// Pop an event from the buffer
-    fn pop(&mut self) -> Option<InputEvent> {
+    fn pop(&mut self) -> Option<InputEventTimed> {
         if self.is_empty() {
             return None;
         }
@@ -95,7 +95,7 @@ impl SafeRingBuffer {
     }
 
     /// Force push by dropping the oldest event if buffer is full
-    fn force_push(&mut self, event: InputEvent) {
+    fn force_push(&mut self, event: InputEventTimed) {
         if self.is_full() {
             // Drop oldest event
             self.tail = (self.tail + 1) % self.capacity;
@@ -123,19 +123,19 @@ impl SafeEventBuffer {
     }
 
     /// Try to push an event to the buffer
-    fn push(&self, event: InputEvent) -> bool {
+    fn push(&self, event: InputEventTimed) -> bool {
         let mut buffer = self.buffer.lock();
         buffer.push(event)
     }
 
     /// Force push an event, dropping oldest if necessary
-    fn force_push(&self, event: InputEvent) {
+    fn force_push(&self, event: InputEventTimed) {
         let mut buffer = self.buffer.lock();
         buffer.force_push(event)
     }
 
     /// Pop an event from the buffer
-    fn pop(&self) -> Option<InputEvent> {
+    fn pop(&self) -> Option<InputEventTimed> {
         let mut buffer = self.buffer.lock();
         buffer.pop()
     }
@@ -175,16 +175,17 @@ impl EvdevClient {
     }
 
     /// Add an event to this client's buffer
-    pub fn push_event(&self, event: InputEvent) {
+    /// This is where we add the timestamp according to Linux input subsystem design
+    pub fn push_event(&self, event: &InputEvent) {
+        // Convert InputEvent to InputEventTimed by adding current timestamp
+        let timed_event = InputEventTimed::from_event(event);
+        
         // Try to push event to the buffer
-        if !self.buffer.push(event) {
+        if !self.buffer.push(timed_event) {
             // Buffer is full, create a SYN_DROPPED event and force push
-            let time_microseconds = event.sec * 1_000_000 + event.usec;
-            let dropped_event = InputEvent::new(
-                time_microseconds,
-                EventType::EvSyn as u16,
-                aster_input::event_type_codes::SynEvent::SynDropped as u16,
-                0,
+            let dropped_event = InputEventTimed::from_event_and_time(
+                &InputEvent::sync(aster_input::event_type_codes::SynEvent::SynDropped, 0),
+                timed_event.sec * 1_000_000 + timed_event.usec
             );
 
             // Force push the dropped event (will automatically drop oldest)
@@ -195,16 +196,14 @@ impl EvdevClient {
         }
 
         // Update packet head for SYN_REPORT events
-        if event.type_ == EventType::EvSyn as u16
-            && event.code == aster_input::event_type_codes::SynEvent::SynReport as u16
-        {
+        if matches!(event, InputEvent::Sync { sync_type: aster_input::event_type_codes::SynEvent::SynReport, .. }) {
             // For now, just reset packet head - more sophisticated tracking could be added
             self.packet_head.store(0, Ordering::Release);
         }
     }
 
     /// Read events from this client's buffer
-    pub fn read_events(&self, count: usize) -> Vec<InputEvent> {
+    pub fn read_events(&self, count: usize) -> Vec<InputEventTimed> {
         let mut events = Vec::new();
 
         for _ in 0..count {
@@ -291,7 +290,7 @@ impl Evdev {
 
         // Send event to all clients
         for client in client_list.iter() {
-            client.push_event(*event);
+            client.push_event(event);
         }
     }
 

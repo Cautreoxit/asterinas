@@ -53,13 +53,39 @@ use spin::Once;
 
 use self::input_core::InputCore;
 
-/// Input event structure   //evdev
-// TODO: rename
+/// Input event structure without timing information for device-to-core communication
+/// This matches the Linux kernel design where drivers submit events without timestamps.
+///
+/// Use an enum to provide type-safe event data based on event type.
+/// For now we only implement EV_SYN, EV_KEY, EV_REL. Other types are TODO.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputEvent {
+    /// Synchronization events (EV_SYN)
+    Sync {
+        sync_type: event_type_codes::SynEvent,
+        value: i32,
+    },
+    /// Key press/release events (EV_KEY)
+    Key {
+        key: event_type_codes::KeyEvent,
+        status: event_type_codes::KeyStatus,
+    },
+    /// Relative movement events (EV_REL)
+    Relative {
+        axis: event_type_codes::RelEvent,
+        value: i32,
+    },
+    // TODO: Add EV_ABS, EV_MSC, EV_SW, EV_LED, EV_SND, ... as needed
+}
+
+// TODO: duration?
+/// Input event structure with timing information for evdev clients
+/// This matches the Linux input_event structure exposed to userspace
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod)]
-pub struct InputEvent {
+pub struct InputEventTimed {
     /// Timestamp seconds since Unix epoch
-    pub sec: u64,   //duration
+    pub sec: u64,
     /// Timestamp microseconds part  
     pub usec: u64,
     /// Event type (EV_KEY, EV_REL, EV_ABS, etc.)
@@ -71,8 +97,56 @@ pub struct InputEvent {
 }
 
 impl InputEvent {
-    /// Create a new input event with timestamp in microseconds
-    pub fn new(time_microseconds: u64, type_: u16, code: u16, value: i32) -> Self {
+    /// Create a synchronization event
+    pub fn sync(sync_type: event_type_codes::SynEvent, value: i32) -> Self {
+        Self::Sync { sync_type, value }
+    }
+
+    /// Create a key event
+    pub fn key(key: event_type_codes::KeyEvent, status: event_type_codes::KeyStatus) -> Self {
+        Self::Key { key, status }
+    }
+
+    /// Create a relative movement event
+    pub fn relative(axis: event_type_codes::RelEvent, value: i32) -> Self {
+        Self::Relative { axis, value }
+    }
+
+    /// Convert enum to raw Linux input event triplet (type, code, value)
+    pub fn to_raw(&self) -> (u16, u16, i32) {
+        match self {
+            InputEvent::Sync { sync_type, value } => (
+                event_type_codes::EventType::EvSyn as u16,
+                *sync_type as u16,
+                *value,
+            ),
+            InputEvent::Key { key, status } => (
+                event_type_codes::EventType::EvKey as u16,
+                *key as u16,
+                *status as i32,
+            ),
+            InputEvent::Relative { axis, value } => (
+                event_type_codes::EventType::EvRel as u16,
+                *axis as u16,
+                *value,
+            ),
+        }
+    }
+
+    /// Get the event type
+    pub fn event_type(&self) -> event_type_codes::EventType {
+        match self {
+            InputEvent::Sync { .. } => event_type_codes::EventType::EvSyn,
+            InputEvent::Key { .. } => event_type_codes::EventType::EvKey,
+            InputEvent::Relative { .. } => event_type_codes::EventType::EvRel,
+        }
+    }
+}
+
+impl InputEventTimed {
+    /// Create a new timed input event from an InputEvent and timestamp
+    pub fn from_event_and_time(event: &InputEvent, time_microseconds: u64) -> Self {
+        let (type_, code, value) = event.to_raw();
         Self {
             sec: time_microseconds / 1_000_000,
             usec: time_microseconds % 1_000_000,
@@ -80,6 +154,14 @@ impl InputEvent {
             code,
             value,
         }
+    }
+
+    /// Create a new timed input event with current system time
+    pub fn from_event(event: &InputEvent) -> Self {
+        use aster_time::read_monotonic_time;
+        let time = read_monotonic_time();
+        let time_microseconds = time.as_micros() as u64;
+        Self::from_event_and_time(event, time_microseconds)
     }
 
     /// Convert to byte array for userspace (compatible with Linux struct input_event)

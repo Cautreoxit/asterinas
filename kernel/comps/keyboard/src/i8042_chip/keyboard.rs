@@ -6,11 +6,10 @@ use alloc::{string::String, sync::Arc};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use aster_input::{
-    event_type_codes::{EventType, KeyStatus},
+    event_type_codes::{KeyEvent, KeyStatus, SynEvent},
     InputCapability, InputDevice, InputEvent, InputId, RegisteredInputDevice,
 };
-use aster_time::read_monotonic_time;
-use log::error;
+
 use ostd::{
     arch::{
         kernel::{MappedIrqLine, IRQ_CHIP},
@@ -97,9 +96,6 @@ impl I8042Keyboard {
         capability.set_evbit(aster_input::event_type_codes::EventType::EvRep);
 
         // TODO: Add all standard keyboard keys
-        // for key_code in 1..=127u16 {
-        //     capability.set_keybit(key_code);
-        // }
         capability.set_keybit(aster_input::event_type_codes::KeyEvent::Key1);
 
         Self {
@@ -148,30 +144,24 @@ fn handle_keyboard_input(_trap_frame: &TrapFrame) {
         return;
     };
 
-    // Get current system time in microseconds
-    let time_in_microseconds = read_monotonic_time().as_micros() as u64;
-
     // Dispatch the input event
     if let Some(_device) = KEYBOARD_DEVICE.get() {
-        // Send key press/release event
-        let key_event = InputEvent::new(
-            time_in_microseconds,
-            EventType::EvKey as u16,
-            key as u16,
-            match key_status {
-                KeyStatus::Pressed => 1,
-                KeyStatus::Released => 0,
-            },
-        );
+        // Map InputKey to Linux KeyEvent; drop if unsupported
+        if let Some(linux_key) = input_key_to_key_event(key) {
+            // Send key press/release event
+            let key_event = InputEvent::key(linux_key, key_status);
     
-        if let Some(registered_device) = REGISTERED_DEVICE.get() {
-            registered_device.submit_event(&key_event);
-    
-            // Send synchronization event
-            let syn_event = InputEvent::new(time_in_microseconds, EventType::EvSyn as u16, 0, 0);
-            registered_device.submit_event(&syn_event);
+            if let Some(registered_device) = REGISTERED_DEVICE.get() {
+                registered_device.submit_event(&key_event);
+        
+                // Send synchronization event
+                let syn_event = InputEvent::sync(SynEvent::SynReport, 0);
+                registered_device.submit_event(&syn_event);
+            } else {
+                log::error!("Keyboard: REGISTERED_DEVICE not found! Event dropped!");
+            }
         } else {
-            log::error!("Keyboard: REGISTERED_DEVICE not found! Event dropped!");
+            log::debug!("Keyboard: unmapped key {:?}, dropped", key);
         }
     }
 
@@ -180,6 +170,99 @@ fn handle_keyboard_input(_trap_frame: &TrapFrame) {
             callback(key);
         }
     }
+}
+
+fn input_key_to_key_event(key: crate::InputKey) -> Option<KeyEvent> {
+    use crate::InputKey as IK;
+    Some(match key {
+        // Letters
+        IK::LowercaseA | IK::UppercaseA => KeyEvent::KeyA,
+        IK::LowercaseB | IK::UppercaseB => KeyEvent::KeyB,
+        IK::LowercaseC | IK::UppercaseC => KeyEvent::KeyC,
+        IK::LowercaseD | IK::UppercaseD => KeyEvent::KeyD,
+        IK::LowercaseE | IK::UppercaseE => KeyEvent::KeyE,
+        IK::LowercaseF | IK::UppercaseF => KeyEvent::KeyF,
+        IK::LowercaseG | IK::UppercaseG => KeyEvent::KeyG,
+        IK::LowercaseH | IK::UppercaseH => KeyEvent::KeyH,
+        IK::LowercaseI | IK::UppercaseI => KeyEvent::KeyI,
+        IK::LowercaseJ | IK::UppercaseJ => KeyEvent::KeyJ,
+        IK::LowercaseK | IK::UppercaseK => KeyEvent::KeyK,
+        IK::LowercaseL | IK::UppercaseL => KeyEvent::KeyL,
+        IK::LowercaseM | IK::UppercaseM => KeyEvent::KeyM,
+        IK::LowercaseN | IK::UppercaseN => KeyEvent::KeyN,
+        IK::LowercaseO | IK::UppercaseO => KeyEvent::KeyO,
+        IK::LowercaseP | IK::UppercaseP => KeyEvent::KeyP,
+        IK::LowercaseQ | IK::UppercaseQ => KeyEvent::KeyQ,
+        IK::LowercaseR | IK::UppercaseR => KeyEvent::KeyR,
+        IK::LowercaseS | IK::UppercaseS => KeyEvent::KeyS,
+        IK::LowercaseT | IK::UppercaseT => KeyEvent::KeyT,
+        IK::LowercaseU | IK::UppercaseU => KeyEvent::KeyU,
+        IK::LowercaseV | IK::UppercaseV => KeyEvent::KeyV,
+        IK::LowercaseW | IK::UppercaseW => KeyEvent::KeyW,
+        IK::LowercaseX | IK::UppercaseX => KeyEvent::KeyX,
+        IK::LowercaseY | IK::UppercaseY => KeyEvent::KeyY,
+        IK::LowercaseZ | IK::UppercaseZ => KeyEvent::KeyZ,
+
+        // Digits
+        IK::One => KeyEvent::Key1,
+        IK::Two => KeyEvent::Key2,
+        IK::Three => KeyEvent::Key3,
+        IK::Four => KeyEvent::Key4,
+        IK::Five => KeyEvent::Key5,
+        IK::Six => KeyEvent::Key6,
+        IK::Seven => KeyEvent::Key7,
+        IK::Eight => KeyEvent::Key8,
+        IK::Nine => KeyEvent::Key9,
+        IK::Zero => KeyEvent::Key0,
+
+        // Whitespace and control
+        IK::Space => KeyEvent::KeySpace,
+        IK::Tab => KeyEvent::KeyTab,
+        IK::Cr => KeyEvent::KeyEnter,
+        IK::Del => KeyEvent::KeyBackspace,
+
+        // Punctuation
+        IK::Minus => KeyEvent::KeyMinus,
+        IK::Equal => KeyEvent::KeyEqual,
+        IK::Backtick => KeyEvent::KeyGrave,
+        IK::BackSlash => KeyEvent::KeyBackslash,
+        IK::Comma => KeyEvent::KeyComma,
+        IK::Period => KeyEvent::KeyDot,
+        IK::ForwardSlash => KeyEvent::KeySlash,
+        IK::SemiColon => KeyEvent::KeySemicolon,
+        IK::SingleQuote => KeyEvent::KeyApostrophe,
+        IK::LeftBracket => KeyEvent::KeyLeftBrace,
+        IK::RightBracket => KeyEvent::KeyRightBrace,
+
+        // Navigation and editing
+        IK::UpArrow => KeyEvent::KeyUp,
+        IK::DownArrow => KeyEvent::KeyDown,
+        IK::LeftArrow => KeyEvent::KeyLeft,
+        IK::RightArrow => KeyEvent::KeyRight,
+        IK::Home => KeyEvent::KeyHome,
+        IK::End => KeyEvent::KeyEnd,
+        IK::Insert => KeyEvent::KeyInsert,
+        IK::Delete => KeyEvent::KeyDelete,
+        IK::PageUp => KeyEvent::KeyPageUp,
+        IK::PageDown => KeyEvent::KeyPageDown,
+
+        // Function keys
+        IK::F1 => KeyEvent::KeyF1,
+        IK::F2 => KeyEvent::KeyF2,
+        IK::F3 => KeyEvent::KeyF3,
+        IK::F4 => KeyEvent::KeyF4,
+        IK::F5 => KeyEvent::KeyF5,
+        IK::F6 => KeyEvent::KeyF6,
+        IK::F7 => KeyEvent::KeyF7,
+        IK::F8 => KeyEvent::KeyF8,
+        IK::F9 => KeyEvent::KeyF9,
+        IK::F10 => KeyEvent::KeyF10,
+        IK::F11 => KeyEvent::KeyF11,
+        IK::F12 => KeyEvent::KeyF12,
+
+        // Unhandled mappings -> None
+        _ => return None,
+    })
 }
 
 /// A scan code in the Scan Code Set 1.
