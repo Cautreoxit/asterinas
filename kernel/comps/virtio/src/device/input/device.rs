@@ -10,8 +10,7 @@ use core::{fmt::Debug, iter, mem};
 
 use aster_input::{
     event_type_codes::{EventType, KeyEvent, KeyStatus, SynEvent},
-    InputCapability, InputDevice as InputDeviceTrait,
-    InputEvent, InputId, RegisteredInputDevice,
+    InputCapability, InputDevice as InputDeviceTrait, InputEvent, InputId, RegisteredInputDevice,
 };
 use aster_time::read_monotonic_time;
 use aster_util::{field_ptr, safe_ptr::SafePtr};
@@ -167,7 +166,7 @@ impl InputDevice {
         drop(transport);
 
         // Register with the new input subsystem
-        let registered_device = aster_input::register_device(device.clone()).map_err(|_| VirtioDeviceError::QueueUnknownError)?;
+        let registered_device = aster_input::register_device(device.clone());
 
         // Store device reference for IRQ handler (convert to trait object)
         let device_trait_object: Arc<dyn InputDeviceTrait> = device;
@@ -255,7 +254,7 @@ impl InputDevice {
                         _ => return true, // Skip invalid values, continue processing
                     };
 
-                    // Dispatch the key event 
+                    // Dispatch the key event
                     if let Some(_device) = VIRTIO_INPUT_DEVICE.get() {
                         // Map VirtIO key code to Linux KeyEvent; for now use a simple mapping
                         if let Some(linux_key) = virtio_key_to_key_event(virtio_event.code) {
@@ -264,11 +263,14 @@ impl InputDevice {
                                 registered_device.submit_event(&key_event);
 
                                 // Dispatch the synchronization event
-                                let syn_event = InputEvent::sync(SynEvent::SynReport, 0);
+                                let syn_event = InputEvent::sync(SynEvent::SynReport);
                                 registered_device.submit_event(&syn_event);
                             }
                         } else {
-                            debug!("VirtIO Input: unmapped key code {}, dropped", virtio_event.code);
+                            debug!(
+                                "VirtIO Input: unmapped key code {}, dropped",
+                                virtio_event.code
+                            );
                         }
                     }
 

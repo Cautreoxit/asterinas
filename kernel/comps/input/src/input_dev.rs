@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
 use core::{any::Any, fmt::Debug};
 
-use ostd::Pod;
+use ostd::{sync::RwLock, Pod};
 
-use crate::event_type_codes::{EventTypeFlags, KeyEventMap, RelEventMap};
+use crate::{
+    event_type_codes::{EventType, KeyEvent, KeyEventMap, RelEvent, RelEventMap},
+    input_handler::InputHandler,
+    unregister_device, InputEvent,
+};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod)]
@@ -55,7 +59,7 @@ impl InputId {
 #[derive(Debug, Clone)]
 pub struct InputCapability {
     /// Supported event types (EV_KEY, EV_REL, etc.)
-    pub evbit: EventTypeFlags,
+    pub evbit: EventType,
     /// Supported key/button codes
     pub keybit: KeyEventMap,
     /// Supported relative axis codes
@@ -63,77 +67,66 @@ pub struct InputCapability {
     // TODO: Add absbit, mscbit, ledbit, sndbit, ffbit, swbit
 }
 
+impl Default for InputCapability {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InputCapability {
     pub fn new() -> Self {
         Self {
-            evbit: EventTypeFlags::new(),
+            evbit: EventType::new(),
             keybit: KeyEventMap::new(),
             relbit: RelEventMap::new(),
         }
     }
 
-    /// Set a capability bit
-    pub fn set_bit(bitmap: &mut Vec<u16>, bit: u16) {
-        if !bitmap.contains(&bit) {
-            bitmap.push(bit);
-        }
-    }
-
-    /// Test if a capability bit is set
-    pub fn test_bit(bitmap: &[u16], bit: u16) -> bool {
-        bitmap.contains(&bit)
-    }
-
     /// Set event type capability
-    pub fn set_evbit(&mut self, event_type: crate::event_type_codes::EventType) {
-        self.evbit.add_event_type(event_type);
+    pub fn set_evbit(&mut self, event_type: EventType) {
+        self.evbit |= event_type;
+    }
+
+    /// Check if an event type is supported
+    pub fn supports_event_type(&self, event_type: EventType) -> bool {
+        self.evbit.contains(event_type)
+    }
+
+    /// Remove support for an event type
+    pub fn clear_evbit(&mut self, event_type: EventType) {
+        self.evbit &= !event_type;
     }
 
     /// Set key capability
-    pub fn set_keybit(&mut self, key_event: crate::event_type_codes::KeyEvent) {
+    pub fn set_keybit(&mut self, key_event: KeyEvent) {
         self.keybit.set(key_event);
-        self.set_evbit(crate::event_type_codes::EventType::EvKey);
+        self.set_evbit(EventType::KEY);
     }
 
     /// Check if a key event is supported
-    pub fn has_key(&self, key_event: crate::event_type_codes::KeyEvent) -> bool {
+    pub fn has_key(&self, key_event: KeyEvent) -> bool {
         self.keybit.contains(key_event)
     }
 
     /// Clear a key capability
-    pub fn clear_keybit(&mut self, key_event: crate::event_type_codes::KeyEvent) {
+    pub fn clear_keybit(&mut self, key_event: KeyEvent) {
         self.keybit.clear(key_event);
     }
 
     /// Set relative axis capability
-    pub fn set_relbit(&mut self, rel_event: crate::event_type_codes::RelEvent) {
+    pub fn set_relbit(&mut self, rel_event: RelEvent) {
         self.relbit.set(rel_event);
-        self.set_evbit(crate::event_type_codes::EventType::EvRel);
+        self.set_evbit(EventType::REL);
     }
 
     /// Check if a relative event is supported
-    pub fn has_rel(&self, rel_event: crate::event_type_codes::RelEvent) -> bool {
+    pub fn has_rel(&self, rel_event: RelEvent) -> bool {
         self.relbit.contains(rel_event)
     }
 
     /// Clear a relative capability
-    pub fn clear_relbit(&mut self, rel_event: crate::event_type_codes::RelEvent) {
+    pub fn clear_relbit(&mut self, rel_event: RelEvent) {
         self.relbit.clear(rel_event);
-    }
-
-    /// Check if an event type is supported
-    pub fn supports_event_type(&self, event_type: crate::event_type_codes::EventType) -> bool {
-        self.evbit.supports_event_type(event_type)
-    }
-
-    /// Remove support for an event type
-    pub fn clear_evbit(&mut self, event_type: crate::event_type_codes::EventType) {
-        self.evbit.remove_event_type(event_type);
-    }
-
-    /// Get all supported event types
-    pub fn get_event_types(&self) -> EventTypeFlags {
-        self.evbit
     }
 }
 
@@ -152,4 +145,71 @@ pub trait InputDevice: Send + Sync + Any + Debug {
 
     /// Device capabilities
     fn capability(&self) -> &InputCapability;
+}
+
+/// Type-safe wrapper ensuring only registered devices can submit events.
+pub struct RegisteredInputDevice {
+    /// Original device
+    device: Arc<dyn InputDevice>,
+    /// Reference to handlers for direct event dispatch
+    handlers: Arc<RwLock<Vec<Arc<dyn InputHandler>>>>,
+}
+
+impl RegisteredInputDevice {
+    pub fn new(
+        device: Arc<dyn InputDevice>,
+        handlers: Arc<RwLock<Vec<Arc<dyn InputHandler>>>>,
+    ) -> Self {
+        Self { device, handlers }
+    }
+
+    /// Submit a single event to all handlers
+    pub fn submit_event(&self, event: &InputEvent) {
+        let handlers = self.handlers.read();
+        if handlers.is_empty() {
+            log::error!(
+                "No handlers for device: {}, event dropped!",
+                self.device.name()
+            );
+            return;
+        }
+
+        for handler in handlers.iter() {
+            handler.handle_event(event);
+        }
+    }
+
+    /// Submit multiple events in batch
+    pub fn submit_events(&self, events: &[InputEvent]) {
+        let handlers = self.handlers.read();
+        if handlers.is_empty() {
+            log::error!(
+                "No handlers for device: {}, event dropped!",
+                self.device.name()
+            );
+            return;
+        }
+
+        for handler in handlers.iter() {
+            handler.handle_events(events);
+        }
+    }
+
+    /// Get the underlying device reference
+    pub fn device(&self) -> &Arc<dyn InputDevice> {
+        &self.device
+    }
+
+    /// Get the number of connected handlers
+    pub fn handler_count(&self) -> usize {
+        self.handlers.read().len()
+    }
+}
+
+impl Drop for RegisteredInputDevice {
+    fn drop(&mut self) {
+        log::info!("Unregistering input device: {}", self.device.name());
+
+        unregister_device(&self.device);
+    }
 }

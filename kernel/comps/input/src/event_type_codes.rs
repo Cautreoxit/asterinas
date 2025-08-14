@@ -1,33 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use bitvec::prelude::*;
 use bitflags::bitflags;
+use bitvec::prelude::*;
 
-#[repr(u16)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EventType {
-    EvSyn = 0x00,      // Synchronization events
-    EvKey = 0x01,      // Key press/release events
-    EvRel = 0x02,      // Relative movement events
-    EvAbs = 0x03,      // Absolute position events
-    EvMsc = 0x04,      // Miscellaneous events
-    EvSw = 0x05,       // Switch events
-    EvLed = 0x11,      // LED events
-    EvSnd = 0x12,      // Sound events
-    EvRep = 0x14,      // Repeat events
-    EvFf = 0x15,       // Force feedback events
-    EvPwr = 0x16,      // Power management events
-    EvFfStatus = 0x17, // Force feedback status events
-}
 // Maximum value for event types
 const EV_MAX: usize = 0x1f;
 pub const EV_COUNT: usize = EV_MAX + 1;
 
 bitflags! {
-    /// Supported input event types.
-    /// 
-    /// This represents which types of input events a device can generate.
-    pub struct EventTypeFlags: u32 {
+    /// Input event types.
+    pub struct EventType: u32 {
         /// Synchronization events
         const SYN = 1 << 0x00;
         /// Key press/release events
@@ -55,65 +37,47 @@ bitflags! {
     }
 }
 
-impl EventTypeFlags {
+impl Default for EventType {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EventType {
     /// Create a new empty set of event type flags
     pub const fn new() -> Self {
         Self::empty()
     }
 
-    /// Convert an EventType enum to its corresponding flag
-    pub const fn from_event_type(event_type: EventType) -> Self {
-        match event_type {
-            EventType::EvSyn => Self::SYN,
-            EventType::EvKey => Self::KEY,
-            EventType::EvRel => Self::REL,
-            EventType::EvAbs => Self::ABS,
-            EventType::EvMsc => Self::MSC,
-            EventType::EvSw => Self::SW,
-            EventType::EvLed => Self::LED,
-            EventType::EvSnd => Self::SND,
-            EventType::EvRep => Self::REP,
-            EventType::EvFf => Self::FF,
-            EventType::EvPwr => Self::PWR,
-            EventType::EvFfStatus => Self::FF_STATUS,
-        }
-    }
-
-    /// Add support for an event type
-    pub fn add_event_type(&mut self, event_type: EventType) {
-        *self |= Self::from_event_type(event_type);
-    }
-
-    /// Remove support for an event type
-    pub fn remove_event_type(&mut self, event_type: EventType) {
-        *self &= !Self::from_event_type(event_type);
-    }
-
-    /// Check if an event type is supported
-    pub fn supports_event_type(&self, event_type: EventType) -> bool {
-        self.contains(Self::from_event_type(event_type))
-    }
-}
-
-impl TryFrom<u8> for EventType {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(EventType::EvSyn),
-            0x01 => Ok(EventType::EvKey),
-            0x02 => Ok(EventType::EvRel),
-            0x03 => Ok(EventType::EvAbs),
-            0x04 => Ok(EventType::EvMsc),
-            0x05 => Ok(EventType::EvSw),
-            0x11 => Ok(EventType::EvLed),
-            0x12 => Ok(EventType::EvSnd),
-            0x14 => Ok(EventType::EvRep),
-            0x15 => Ok(EventType::EvFf),
-            0x16 => Ok(EventType::EvPwr),
-            0x17 => Ok(EventType::EvFfStatus),
-            _ => Err(()),
-        }
+    /// Get the raw u16 value for this event type (for compatibility with Linux input events)
+    pub const fn as_u16(&self) -> u16 {
+        if self.contains(Self::SYN) {
+            0x00
+        } else if self.contains(Self::KEY) {
+            0x01
+        } else if self.contains(Self::REL) {
+            0x02
+        } else if self.contains(Self::ABS) {
+            0x03
+        } else if self.contains(Self::MSC) {
+            0x04
+        } else if self.contains(Self::SW) {
+            0x05
+        } else if self.contains(Self::LED) {
+            0x11
+        } else if self.contains(Self::SND) {
+            0x12
+        } else if self.contains(Self::REP) {
+            0x14
+        } else if self.contains(Self::FF) {
+            0x15
+        } else if self.contains(Self::PWR) {
+            0x16
+        } else if self.contains(Self::FF_STATUS) {
+            0x17
+        } else {
+            0
+        } // Default to 0 if no single flag is set
     }
 }
 
@@ -170,6 +134,12 @@ pub const REL_COUNT: usize = REL_MAX + 1;
 
 #[derive(Debug, Clone)]
 pub struct RelEventMap(BitVec<u8>);
+
+impl Default for RelEventMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RelEventMap {
     pub fn new() -> Self {
@@ -338,6 +308,12 @@ pub enum KeyStatus {
 
 #[derive(Debug, Clone)]
 pub struct KeyEventMap(BitVec<u8>);
+
+impl Default for KeyEventMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl KeyEventMap {
     pub fn new() -> Self {

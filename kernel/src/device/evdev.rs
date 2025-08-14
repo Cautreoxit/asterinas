@@ -3,10 +3,8 @@
 use alloc::{format, string::String, sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
-use aster_input::{
-    event_type_codes::EventType, InputDevice, InputEvent, InputEventTimed, InputHandlerClass, InputHandler,
-};
-use ostd::sync::SpinLock;
+use aster_input::{InputDevice, InputEvent, InputHandler, InputHandlerClass};
+use ostd::{sync::SpinLock, Pod};
 
 use crate::{
     events::IoEvents,
@@ -32,9 +30,50 @@ static EVDEV_DEVICES: SpinLock<Vec<(u32, Arc<EvdevDevice>)>> = SpinLock::new(Vec
 /// Global mapping from device name to evdev instance
 static DEVICE_TO_EVDEV: SpinLock<Vec<(String, Arc<Evdev>)>> = SpinLock::new(Vec::new());
 
+// TODO: duration?
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod)]
+pub struct EvdevEvent {
+    pub sec: u64,
+    pub usec: u64,
+    pub type_: u16,
+    pub code: u16,
+    pub value: i32,
+}
+
+impl EvdevEvent {
+    pub fn from_event_and_time(event: &InputEvent, time_microseconds: u64) -> Self {
+        let (type_, code, value) = event.to_raw();
+        Self {
+            sec: time_microseconds / 1_000_000,
+            usec: time_microseconds % 1_000_000,
+            type_,
+            code,
+            value,
+        }
+    }
+
+    pub fn from_event(event: &InputEvent) -> Self {
+        use aster_time::read_monotonic_time;
+        let time = read_monotonic_time();
+        let time_microseconds = time.as_micros() as u64;
+        Self::from_event_and_time(event, time_microseconds)
+    }
+
+    pub fn to_bytes(&self) -> [u8; 24] {
+        let mut bytes = [0u8; 24];
+        bytes[0..8].copy_from_slice(&self.sec.to_le_bytes());
+        bytes[8..16].copy_from_slice(&self.usec.to_le_bytes());
+        bytes[16..18].copy_from_slice(&self.type_.to_le_bytes());
+        bytes[18..20].copy_from_slice(&self.code.to_le_bytes());
+        bytes[20..24].copy_from_slice(&self.value.to_le_bytes());
+        bytes
+    }
+}
+
 struct SafeRingBuffer {
     /// Event storage
-    events: Vec<InputEventTimed>,
+    events: Vec<EvdevEvent>,
     /// Write position
     head: usize,
     /// Read position
@@ -46,7 +85,16 @@ struct SafeRingBuffer {
 impl SafeRingBuffer {
     fn new(capacity: usize) -> Self {
         Self {
-            events: vec![InputEventTimed { sec: 0, usec: 0, type_: 0, code: 0, value: 0 }; capacity],
+            events: vec![
+                EvdevEvent {
+                    sec: 0,
+                    usec: 0,
+                    type_: 0,
+                    code: 0,
+                    value: 0
+                };
+                capacity
+            ],
             head: 0,
             tail: 0,
             capacity,
@@ -73,7 +121,7 @@ impl SafeRingBuffer {
     }
 
     /// Push an event to the buffer
-    fn push(&mut self, event: InputEventTimed) -> bool {
+    fn push(&mut self, event: EvdevEvent) -> bool {
         if self.is_full() {
             return false;
         }
@@ -84,7 +132,7 @@ impl SafeRingBuffer {
     }
 
     /// Pop an event from the buffer
-    fn pop(&mut self) -> Option<InputEventTimed> {
+    fn pop(&mut self) -> Option<EvdevEvent> {
         if self.is_empty() {
             return None;
         }
@@ -95,7 +143,7 @@ impl SafeRingBuffer {
     }
 
     /// Force push by dropping the oldest event if buffer is full
-    fn force_push(&mut self, event: InputEventTimed) {
+    fn force_push(&mut self, event: EvdevEvent) {
         if self.is_full() {
             // Drop oldest event
             self.tail = (self.tail + 1) % self.capacity;
@@ -123,19 +171,19 @@ impl SafeEventBuffer {
     }
 
     /// Try to push an event to the buffer
-    fn push(&self, event: InputEventTimed) -> bool {
+    fn push(&self, event: EvdevEvent) -> bool {
         let mut buffer = self.buffer.lock();
         buffer.push(event)
     }
 
     /// Force push an event, dropping oldest if necessary
-    fn force_push(&self, event: InputEventTimed) {
+    fn force_push(&self, event: EvdevEvent) {
         let mut buffer = self.buffer.lock();
         buffer.force_push(event)
     }
 
     /// Pop an event from the buffer
-    fn pop(&self) -> Option<InputEventTimed> {
+    fn pop(&self) -> Option<EvdevEvent> {
         let mut buffer = self.buffer.lock();
         buffer.pop()
     }
@@ -177,15 +225,15 @@ impl EvdevClient {
     /// Add an event to this client's buffer
     /// This is where we add the timestamp according to Linux input subsystem design
     pub fn push_event(&self, event: &InputEvent) {
-        // Convert InputEvent to InputEventTimed by adding current timestamp
-        let timed_event = InputEventTimed::from_event(event);
-        
+        // Convert InputEvent to EvdevEvent by adding current timestamp
+        let timed_event = EvdevEvent::from_event(event);
+
         // Try to push event to the buffer
         if !self.buffer.push(timed_event) {
             // Buffer is full, create a SYN_DROPPED event and force push
-            let dropped_event = InputEventTimed::from_event_and_time(
-                &InputEvent::sync(aster_input::event_type_codes::SynEvent::SynDropped, 0),
-                timed_event.sec * 1_000_000 + timed_event.usec
+            let dropped_event = EvdevEvent::from_event_and_time(
+                &InputEvent::sync(aster_input::event_type_codes::SynEvent::SynDropped),
+                timed_event.sec * 1_000_000 + timed_event.usec,
             );
 
             // Force push the dropped event (will automatically drop oldest)
@@ -196,14 +244,17 @@ impl EvdevClient {
         }
 
         // Update packet head for SYN_REPORT events
-        if matches!(event, InputEvent::Sync { sync_type: aster_input::event_type_codes::SynEvent::SynReport, .. }) {
+        if matches!(
+            event,
+            InputEvent::Sync(aster_input::event_type_codes::SynEvent::SynReport)
+        ) {
             // For now, just reset packet head - more sophisticated tracking could be added
             self.packet_head.store(0, Ordering::Release);
         }
     }
 
     /// Read events from this client's buffer
-    pub fn read_events(&self, count: usize) -> Vec<InputEventTimed> {
+    pub fn read_events(&self, count: usize) -> Vec<EvdevEvent> {
         let mut events = Vec::new();
 
         for _ in 0..count {
@@ -322,6 +373,16 @@ pub struct EvdevDevice {
 impl EvdevDevice {
     pub fn new(evdev: Arc<Evdev>) -> Self {
         Self { evdev }
+    }
+
+    /// Check if this evdev device is associated with the given input device
+    pub fn matches_input_device(&self, input_device: &Arc<dyn InputDevice>) -> bool {
+        Arc::ptr_eq(&self.evdev.device, input_device)
+    }
+
+    /// Get the minor device number
+    pub fn minor(&self) -> u32 {
+        self.evdev.minor
     }
 }
 
@@ -462,8 +523,10 @@ impl InputHandlerClass for EvdevHandlerClass {
         &self.name
     }
 
-    fn connect(&self, dev: Arc<dyn InputDevice>) -> core::result::Result<Arc<dyn InputHandler>, i32> {
-        // Evdev handler accepts all input devices
+    fn connect(
+        &self,
+        dev: Arc<dyn InputDevice>,
+    ) -> core::result::Result<Arc<dyn InputHandler>, ()> {
         // Allocate a new minor number
         let minor = EVDEV_MINOR_COUNTER.fetch_add(1, Ordering::Relaxed);
 
@@ -483,35 +546,45 @@ impl InputHandlerClass for EvdevHandlerClass {
                 let handler = EvdevHandler::new(minor as u64, dev.name().to_string(), evdev);
                 Ok(Arc::new(handler))
             }
-            Err(_err) => {
-                Err(-12) // ENOMEM
-            }
+            Err(_err) => Err(()),
         }
     }
 
-    fn disconnect(&self, dev: &Arc<dyn InputDevice>) -> core::result::Result<(), i32> {
-        // Find and remove evdev from mapping by device name
-        let _device_name = dev.name();
+    fn disconnect(&self, dev: &Arc<dyn InputDevice>) {
         let mut devices = EVDEV_DEVICES.lock();
-        
-        // Find the device by checking evdev metadata
-        if let Some(pos) = devices.iter().position(|(_, _evdev_device)| {
-            // This is a simplified check - in real implementation, 
-            // we'd need to properly track device name to minor mapping
-            true // For now, just remove all - this should be improved
+        let device_name = dev.name();
+
+        // Find the device by checking if it matches the input device
+        if let Some(pos) = devices.iter().position(|(_, evdev_device)| {
+            evdev_device.matches_input_device(dev)
         }) {
-            let (minor, _) = devices.remove(pos);
+            let (minor, evdev_device) = devices.remove(pos);
             let device_path = format!("input/event{}", minor);
-            
+
             // Delete the device node
-            if let Err(err) = delete_node(&device_path) {
-                log::warn!("Failed to remove device node {}: {:?}", device_path, err);
-            } else {
-                log::info!("Removed evdev device node: /dev/{}", device_path);
+            match delete_node(&device_path) {
+                Ok(_) => {
+                    log::info!(
+                        "Successfully removed evdev device node: /dev/{} for device '{}'", 
+                        device_path, 
+                        device_name
+                    );
+                }
+                Err(err) => {
+                    log::error!(
+                        "Failed to remove device node /dev/{} for device '{}': {:?}", 
+                        device_path, 
+                        device_name, 
+                        err
+                    );
+                }
             }
+        } else {
+            log::warn!(
+                "Attempted to disconnect device '{}' but it did not connect to evdev",
+                device_name
+            );
         }
-        
-        Ok(())
     }
 }
 
@@ -538,16 +611,12 @@ impl InputHandler for EvdevHandler {
         "evdev"
     }
 
-    fn start(&self) -> core::result::Result<(), i32> {
-        log::info!("Starting evdev handler for device: {} (minor: {})", 
-                   self.device_name, self.minor);
-        Ok(())
-    }
-
     fn handle_event(&self, event: &InputEvent) {
         // Forward event to the evdev device
         self.evdev.pass_event(event);
     }
+
+    // TODO: impl handle_events()
 }
 
 /// Initialize evdev support in the kernel device system
@@ -555,20 +624,13 @@ pub fn init() -> Result<()> {
     let handler_class = Arc::new(EvdevHandlerClass::new());
 
     // Register the evdev handler class with the input subsystem
-    if let Err(err) = aster_input::register_handler_class(handler_class) {
-        log::error!("Failed to register evdev handler class: {}", err);
-        return Err(Error::with_message(
-            Errno::EINVAL,
-            "Failed to register evdev handler class",
-        ));
-    }
+    aster_input::register_handler_class(handler_class);
 
     log::info!("Evdev device support initialized");
     Ok(())
 }
 
-
-
+// TODO:
 // struct EvdevInputHandler {
 //     clients: RwLock<Vec<EvdevClient>>,
 // }
