@@ -85,12 +85,11 @@ impl I8042Keyboard {
     pub fn new() -> Self {
         let mut capability = InputCapability::new();
 
-        capability.set_evbit(aster_input::event_type_codes::EventType::KEY);
-        capability.set_evbit(aster_input::event_type_codes::EventType::SYN);
-        capability.set_evbit(aster_input::event_type_codes::EventType::REP);
+        capability.set_supported_event_type(aster_input::event_type_codes::EventTypes::KEY);
+        capability.set_supported_event_type(aster_input::event_type_codes::EventTypes::SYN);
 
-        // TODO: Add all standard keyboard keys
-        capability.set_keybit(aster_input::event_type_codes::KeyEvent::Key1);
+        // Add all standard keyboard keys
+        capability.add_standard_keyboard_keys();
 
         Self {
             name: "i8042_keyboard".to_string(),

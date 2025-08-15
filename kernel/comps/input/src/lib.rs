@@ -83,21 +83,21 @@ impl InputEvent {
     pub fn to_raw(&self) -> (u16, u16, i32) {
         match self {
             InputEvent::Sync(sync_type) => (
-                EventType::SYN.as_u16(),
+                EventTypes::SYN.as_u16(),
                 *sync_type as u16,
                 0, // Sync events always have value = 0
             ),
-            InputEvent::Key(key, status) => (EventType::KEY.as_u16(), *key as u16, *status as i32),
-            InputEvent::Relative(axis, value) => (EventType::REL.as_u16(), *axis as u16, *value),
+            InputEvent::Key(key, status) => (EventTypes::KEY.as_u16(), *key as u16, *status as i32),
+            InputEvent::Relative(axis, value) => (EventTypes::REL.as_u16(), *axis as u16, *value),
         }
     }
 
     /// Get the event type.
-    pub fn event_type(&self) -> EventType {
+    pub fn event_type(&self) -> EventTypes {
         match self {
-            InputEvent::Sync(_) => EventType::SYN,
-            InputEvent::Key(_, _) => EventType::KEY,
-            InputEvent::Relative(_, _) => EventType::REL,
+            InputEvent::Sync(_) => EventTypes::SYN,
+            InputEvent::Key(_, _) => EventTypes::KEY,
+            InputEvent::Relative(_, _) => EventTypes::REL,
         }
     }
 }

@@ -11,11 +11,11 @@ use crate::{input_dev::RegisteredInputDevice, InputDevice, InputHandler, InputHa
 ///
 /// This serves as the connection point between devices and their handlers.
 #[derive(Debug)]
-pub struct InputDeviceRegistry {
+struct InputDeviceRegistry {
     /// The input device
-    pub device: Arc<dyn InputDevice>,
-    /// Handlers connected to this device (shared with RegisteredInputDevice)
-    pub handlers: Arc<RwLock<Vec<Arc<dyn InputHandler>>>>,
+    device: Arc<dyn InputDevice>,
+    /// Handlers connected to this device
+    handlers: Arc<RwLock<Vec<Arc<dyn InputHandler>>>>,
 }
 
 #[derive(Debug)]
@@ -28,7 +28,7 @@ pub struct InputCore {
 
 impl InputCore {
     /// Create a new input core
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             devices: RwLock::new(Vec::new()),
             handler_classes: RwLock::new(Vec::new()),
@@ -36,7 +36,7 @@ impl InputCore {
     }
 
     /// Register a new handler class
-    pub fn register_handler_class(&self, handler_class: Arc<dyn InputHandlerClass>) {
+    pub(crate) fn register_handler_class(&self, handler_class: Arc<dyn InputHandlerClass>) {
         // Add to handler classes registry
         self.handler_classes.write().push(handler_class.clone());
 
@@ -52,7 +52,7 @@ impl InputCore {
     }
 
     /// Unregister a handler class
-    pub fn unregister_handler_class(&self, handler_class: &Arc<dyn InputHandlerClass>) {
+    pub(crate) fn unregister_handler_class(&self, handler_class: &Arc<dyn InputHandlerClass>) {
         let class_name = handler_class.name();
 
         // Remove from handler classes
@@ -77,7 +77,7 @@ impl InputCore {
     }
 
     /// Register a new input device
-    pub fn register_device(&self, device: Arc<dyn InputDevice>) -> RegisteredInputDevice {
+    pub(crate) fn register_device(&self, device: Arc<dyn InputDevice>) -> RegisteredInputDevice {
         // Connect all existing handler classes
         let handler_classes = self.handler_classes.read();
         let mut connected_handlers = Vec::new();
@@ -102,7 +102,7 @@ impl InputCore {
     }
 
     /// Unregister an input device
-    pub fn unregister_device(&self, device: &Arc<dyn InputDevice>) {
+    pub(crate) fn unregister_device(&self, device: &Arc<dyn InputDevice>) {
         let mut devices = self.devices.write();
 
         // Find the device to remove
@@ -129,17 +129,17 @@ impl InputCore {
     }
 
     /// Get device count
-    pub fn device_count(&self) -> usize {
+    pub(crate) fn device_count(&self) -> usize {
         self.devices.read().len()
     }
 
     /// Get handler class count
-    pub fn handler_class_count(&self) -> usize {
+    pub(crate) fn handler_class_count(&self) -> usize {
         self.handler_classes.read().len()
     }
 
     /// Get all registered devices
-    pub fn all_devices(&self) -> Vec<Arc<dyn InputDevice>> {
+    pub(crate) fn all_devices(&self) -> Vec<Arc<dyn InputDevice>> {
         let devices = self.devices.read();
         devices
             .iter()
