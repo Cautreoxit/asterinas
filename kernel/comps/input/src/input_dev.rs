@@ -6,21 +6,73 @@ use core::{any::Any, fmt::Debug};
 use ostd::{sync::RwLock, Pod};
 
 use crate::{
-    event_type_codes::{EventTypes, KeyEvent, KeyEventMap, RelEvent, RelEventMap},
+    event_type_codes::{EventTypes, KeyEvent, KeyEventMap, RelEvent, RelEventMap, SynEvent, KeyStatus},
     input_handler::InputHandler,
-    unregister_device, InputEvent,
+    unregister_device,
 };
+
+/// For now we only implement EV_SYN, EV_KEY, EV_REL. Other types are TODO.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputEvent {
+    /// Synchronization events (EV_SYN)
+    Sync(SynEvent),
+    /// Key press/release events (EV_KEY)
+    Key(KeyEvent, KeyStatus),
+    /// Relative movement events (EV_REL)
+    Relative(RelEvent, i32),
+    // TODO: Add EV_ABS, EV_MSC, EV_SW, EV_LED, EV_SND, ... as needed
+}
+
+impl InputEvent {
+    /// Create a synchronization event.
+    pub fn sync(sync_type: SynEvent) -> Self {
+        Self::Sync(sync_type)
+    }
+
+    /// Create a key event.
+    pub fn key(key: KeyEvent, status: KeyStatus) -> Self {
+        Self::Key(key, status)
+    }
+
+    /// Create a relative movement event.
+    pub fn relative(axis: RelEvent, value: i32) -> Self {
+        Self::Relative(axis, value)
+    }
+
+    /// Convert enum to raw Linux input event triplet (type, code, value).
+    pub fn to_raw(&self) -> (u16, u16, i32) {
+        match self {
+            InputEvent::Sync(sync_type) => (
+                EventTypes::SYN.as_u16(),
+                *sync_type as u16,
+                0, // Sync events always have value = 0
+            ),
+            InputEvent::Key(key, status) => (EventTypes::KEY.as_u16(), *key as u16, *status as i32),
+            InputEvent::Relative(axis, value) => (EventTypes::REL.as_u16(), *axis as u16, *value),
+        }
+    }
+
+    /// Get the event type.
+    pub fn event_type(&self) -> EventTypes {
+        match self {
+            InputEvent::Sync(_) => EventTypes::SYN,
+            InputEvent::Key(_, _) => EventTypes::KEY,
+            InputEvent::Relative(_, _) => EventTypes::REL,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod)]
 pub struct InputId {
-    pub bustype: u16, // Bus type
-    pub vendor: u16,  // Vendor ID
-    pub product: u16, // Product ID
-    pub version: u16, // Version number
+    bustype: u16, // Bus type
+    vendor: u16,  // Vendor ID
+    product: u16, // Product ID
+    version: u16, // Version number
 }
 
 impl InputId {
+    /// Create a new InputId with the specified values
     pub fn new(bustype: u16, vendor: u16, product: u16, version: u16) -> Self {
         Self {
             bustype,
@@ -28,6 +80,26 @@ impl InputId {
             product,
             version,
         }
+    }
+
+    /// Get the bus type
+    pub fn bustype(&self) -> u16 {
+        self.bustype
+    }
+
+    /// Get the vendor ID
+    pub fn vendor(&self) -> u16 {
+        self.vendor
+    }
+
+    /// Get the product ID
+    pub fn product(&self) -> u16 {
+        self.product
+    }
+
+    /// Get the version number
+    pub fn version(&self) -> u16 {
+        self.version
     }
 
     /// Common bus types

@@ -95,12 +95,7 @@ impl I8042Keyboard {
             name: "i8042_keyboard".to_string(),
             phys: "isa0060/serio0/input0".to_string(),
             uniq: "".to_string(),
-            id: InputId {
-                bustype: InputId::BUS_I8042,
-                vendor: 0x0001,
-                product: 0x0001,
-                version: 0x0100,
-            },
+            id: InputId::new(InputId::BUS_I8042, 0x0001, 0x0001, 0x0100),
             capability,
         }
     }

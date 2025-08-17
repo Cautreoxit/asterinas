@@ -32,9 +32,6 @@ static EVDEV_MINOR_COUNTER: AtomicU32 = AtomicU32::new(0);
 /// Global registry of evdev devices for cleanup
 static EVDEV_DEVICES: SpinLock<Vec<(u32, Arc<Evdev>)>> = SpinLock::new(Vec::new());
 
-/// Global mapping from device name to evdev instance
-static DEVICE_TO_EVDEV: SpinLock<Vec<(String, Arc<Evdev>)>> = SpinLock::new(Vec::new());
-
 // TODO: duration?
 // Compatible with Linux's event format
 #[repr(C)]
@@ -85,8 +82,6 @@ impl EvdevEvent {
 pub struct EvdevClient {
     /// Consumer for reading events (used by user space)
     consumer: Mutex<RbConsumer<EvdevEvent>>,
-    /// Reference to the evdev device
-    evdev: Arc<Evdev>,
     /// Client-specific clock type
     clock_type: AtomicU32,
     /// Number of events available
@@ -99,7 +94,6 @@ impl EvdevClient {
 
         let client = Self {
             consumer: Mutex::new(consumer),
-            evdev,
             clock_type: AtomicU32::new(1), // Default to be CLOCK_MONOTONIC
             event_count: AtomicUsize::new(0),
         };

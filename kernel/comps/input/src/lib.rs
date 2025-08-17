@@ -45,62 +45,11 @@ use alloc::{sync::Arc, vec::Vec};
 
 use component::{init_component, ComponentInitError};
 pub use event_type_codes::*;
-pub use input_dev::{InputCapability, InputDevice, InputId, RegisteredInputDevice};
+pub use input_dev::{InputCapability, InputDevice, InputEvent, InputId, RegisteredInputDevice};
 pub use input_handler::{InputHandler, InputHandlerClass};
 use spin::Once;
 
 use self::input_core::InputCore;
-
-/// For now we only implement EV_SYN, EV_KEY, EV_REL. Other types are TODO.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InputEvent {
-    /// Synchronization events (EV_SYN)
-    Sync(SynEvent),
-    /// Key press/release events (EV_KEY)
-    Key(KeyEvent, KeyStatus),
-    /// Relative movement events (EV_REL)
-    Relative(RelEvent, i32),
-    // TODO: Add EV_ABS, EV_MSC, EV_SW, EV_LED, EV_SND, ... as needed
-}
-
-impl InputEvent {
-    /// Create a synchronization event.
-    pub fn sync(sync_type: SynEvent) -> Self {
-        Self::Sync(sync_type)
-    }
-
-    /// Create a key event.
-    pub fn key(key: KeyEvent, status: KeyStatus) -> Self {
-        Self::Key(key, status)
-    }
-
-    /// Create a relative movement event.
-    pub fn relative(axis: RelEvent, value: i32) -> Self {
-        Self::Relative(axis, value)
-    }
-
-    /// Convert enum to raw Linux input event triplet (type, code, value).
-    pub fn to_raw(&self) -> (u16, u16, i32) {
-        match self {
-            InputEvent::Sync(sync_type) => (
-                EventTypes::SYN.as_u16(),
-                *sync_type as u16,
-                0, // Sync events always have value = 0
-            ),
-            InputEvent::Key(key, status) => (EventTypes::KEY.as_u16(), *key as u16, *status as i32),
-            InputEvent::Relative(axis, value) => (EventTypes::REL.as_u16(), *axis as u16, *value),
-        }
-    }
-
-    /// Get the event type.
-    pub fn event_type(&self) -> EventTypes {
-        match self {
-            InputEvent::Sync(_) => EventTypes::SYN,
-            InputEvent::Key(_, _) => EventTypes::KEY,
-            InputEvent::Relative(_, _) => EventTypes::REL,
-        }
-    }
-}
 
 /// Register a handler class.
 pub fn register_handler_class(handler_class: Arc<dyn InputHandlerClass>) {

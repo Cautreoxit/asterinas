@@ -124,12 +124,7 @@ impl InputDevice {
             callbacks: RwLock::new(Vec::new()),
             device_name: "virtio_input".to_string(), // Default name, can be queried later
             device_phys: "virtio".to_string(),
-            device_id: InputId {
-                bustype: InputId::BUS_VIRTUAL,
-                vendor: 0x1AF4,  // VirtIO vendor ID
-                product: 0x0012, // VirtIO input device ID
-                version: 0x0001,
-            },
+            device_id: InputId::new(InputId::BUS_VIRTUAL, 0x1AF4, 0x0012, 0x0001),
             capability: SpinLock::new(capability),
         };
 
