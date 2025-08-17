@@ -71,7 +71,7 @@ NIX_QUIET = --quiet -Q
 endif
 
 .PHONY: all
-all: build
+all: $(INITRAMFS_IMAGE)
 
 $(INITRAMFS)/lib/x86_64-linux-gnu: | $(VDSO_LIB)
 	@mkdir -p $@
