@@ -16,3 +16,4 @@ set -e
 ./full
 ./hwrng
 ./random
+./nvme

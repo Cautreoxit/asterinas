@@ -180,6 +180,7 @@ dependencies = [
  "aster-logger",
  "aster-mlsdisk",
  "aster-network",
+ "aster-nvme",
  "aster-rights",
  "aster-rights-proc",
  "aster-softirq",
@@ -269,6 +270,21 @@ dependencies = [
  "aster-softirq",
  "bitvec",
  "component",
+ "ostd",
+ "ostd-pod",
+ "spin",
+ "zerocopy",
+]
+
+[[package]]
+name = "aster-nvme"
+version = "0.1.0"
+dependencies = [
+ "aster-block",
+ "aster-pci",
+ "aster-util",
+ "component",
+ "device-id",
  "ostd",
  "ostd-pod",
  "spin",
